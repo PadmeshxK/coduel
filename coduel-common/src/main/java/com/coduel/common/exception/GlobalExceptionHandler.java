@@ -8,6 +8,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -33,6 +34,7 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.BAD_REQUEST, ApiStatus.BAD_DATA.name(), detail);
     }
 
+    // HttpMessageNotReadableException (malformed/unbindable body) does NOT implement ErrorResponse, so handle it explicitly.
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ErrorData> handleUnreadable(HttpMessageNotReadableException ex) {
         log.debug("Unreadable request body: {}", ex.getMostSpecificCause().getMessage());
@@ -41,6 +43,12 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Throwable.class)
     public ResponseEntity<ErrorData> handleUnknown(Throwable ex) {
+        // Other Spring MVC exceptions (404/405/...) implement ErrorResponse and carry the right status.
+        if (ex instanceof ErrorResponse er) {
+            HttpStatus status = HttpStatus.valueOf(er.getStatusCode().value());
+            String detail = er.getBody().getDetail();
+            return build(status, status.name(), detail != null ? detail : status.getReasonPhrase());
+        }
         log.error("Unexpected error", ex);
         return build(HttpStatus.INTERNAL_SERVER_ERROR, ApiStatus.UNKNOWN_ERROR.name(), "Something went wrong");
     }
