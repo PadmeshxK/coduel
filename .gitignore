@@ -1,0 +1,67 @@
+# ---- Maven ----
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.properties
+
+# ---- Java / build artifacts ----
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+hs_err_pid*
+replay_pid*
+
+# ---- Spring Boot ----
+*.original
+application-local.properties
+application-local.yml
+application-local.yaml
+
+# ---- IDE: IntelliJ IDEA ----
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# ---- IDE: Eclipse / STS ----
+.classpath
+.project
+.settings/
+.apt_generated/
+.factorypath
+.springBeans
+.sts4-cache/
+
+# ---- IDE: VS Code / NetBeans ----
+.vscode/
+nbproject/
+nbbuild/
+nbdist/
+.nb-gradle/
+
+# ---- Logs ----
+*.log
+logs/
+
+# ---- OS junk ----
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- Claude / AI tooling ----
+.claude/
+CLAUDE.md
+
+# ---- Project docs & notes ----
+docs/
+*.md
+
+# ---- Env / secrets ----
+.env
+.env.*
+*.local
