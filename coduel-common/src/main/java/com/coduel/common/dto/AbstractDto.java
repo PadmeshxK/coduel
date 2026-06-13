@@ -30,7 +30,7 @@ public abstract class AbstractDto {
                 .map(v -> v.getPropertyPath() + " " + v.getMessage())
                 .sorted()
                 .collect(Collectors.joining("; "));
-        throw new ApiException(ApiStatus.BAD_DATA, Errors.ERR_VALIDATION, List.of(detail));
+        throw new ApiException(ApiStatus.BAD_DATA, Errors.ERR_002, List.of(detail));
     }
 
     /** Trim every non-null, non-@NoTrim String field on the form, in place. */
@@ -50,7 +50,7 @@ public abstract class AbstractDto {
                 }
             } catch (IllegalAccessException e) {
                 log.error("Failed to trim {} on {}", field.getName(), form.getClass().getSimpleName(), e);
-                throw new ApiException(ApiStatus.UNKNOWN_ERROR, Errors.ERR_TRIM_FAILED, List.of(field.getName()));
+                throw new ApiException(ApiStatus.UNKNOWN_ERROR, Errors.ERR_003, List.of(field.getName()));
             }
         }
     }

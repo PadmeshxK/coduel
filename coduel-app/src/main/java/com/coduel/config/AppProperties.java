@@ -24,6 +24,11 @@ public class AppProperties {
     @Value("${execution.max-timeout-ms:10000}")
     private long maxTimeoutMs;
 
+    // Environment-specific: dev = localhost, prod = managed cluster. (Topic names are NOT here —
+    // they're a fixed producer/consumer contract, kept as constants in code.)
+    @Value("${spring.kafka.bootstrap-servers}")
+    private String kafkaBootstrapServers;
+
     @PostConstruct
     public void init() {
         if (poolSize <= 0) {

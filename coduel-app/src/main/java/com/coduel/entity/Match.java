@@ -1,0 +1,38 @@
+package com.coduel.entity;
+
+import com.coduel.model.constant.GameMode;
+import com.coduel.model.constant.MatchState;
+import jakarta.persistence.*;
+import lombok.Getter;
+import lombok.Setter;
+
+import java.time.Instant;
+
+@Getter
+@Setter
+@Entity
+// Named "Matches" so the table resolves to "matches" (no @Table override) — "match" is reserved in MySQL.
+@Table(name = "matches")
+public class Match extends BaseEntity {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private GameMode gameMode;
+
+    @Column(nullable = false)
+    private Long problemId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private MatchState state;
+
+    // null until the match is decided (state = FINISHED).
+    private Long winnerUserId;
+
+    // when the match finished. createdAt (BaseEntity) serves as the start time.
+    private Instant endedAt;
+}

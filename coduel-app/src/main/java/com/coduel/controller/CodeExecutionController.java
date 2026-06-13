@@ -11,13 +11,13 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("code")
+@RequestMapping("/code")
 public class CodeExecutionController {
 
     @Autowired
     private CodeExecutionDto codeExecutionDto;
 
-    @PostMapping("execute")
+    @PostMapping("/execute")
     public ExecutionData executeCode(@RequestBody ExecutionForm form) throws ApiException {
         return codeExecutionDto.executeCode(form);
     }

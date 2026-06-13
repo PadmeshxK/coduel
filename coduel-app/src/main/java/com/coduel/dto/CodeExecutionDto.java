@@ -41,21 +41,21 @@ public class CodeExecutionDto extends AbstractDto {
             return ConversionHelper.convert(future.get());
         } catch (RejectedExecutionException e) {
             log.warn("Execution rejected: pool and queue are full");
-            throw new ApiException(ApiStatus.SERVER_BUSY, Errors.ERR_SERVER_BUSY, List.of());
+            throw new ApiException(ApiStatus.SERVER_BUSY, Errors.ERR_102, List.of());
         } catch (ExecutionException e) {
             return onFailure(e.getCause(), form);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new ApiException(ApiStatus.UNKNOWN_ERROR, Errors.ERR_EXECUTION_FAILED, List.of("interrupted"));
+            throw new ApiException(ApiStatus.UNKNOWN_ERROR, Errors.ERR_101, List.of("interrupted"));
         }
     }
 
     private ExecutionData onFailure(Throwable cause, ExecutionForm form) throws ApiException {
         if (cause instanceof IllegalArgumentException) {
-            throw new ApiException(ApiStatus.BAD_DATA, Errors.ERR_UNSUPPORTED_LANGUAGE, List.of(form.getLanguage()));
+            throw new ApiException(ApiStatus.BAD_DATA, Errors.ERR_100, List.of(form.getLanguage()));
         }
         log.error("Execution failed for language {}", form.getLanguage(), cause);
-        throw new ApiException(ApiStatus.UNKNOWN_ERROR, Errors.ERR_EXECUTION_FAILED,
+        throw new ApiException(ApiStatus.UNKNOWN_ERROR, Errors.ERR_101,
                 List.of(cause == null ? "unknown" : cause.getMessage()));
     }
 
