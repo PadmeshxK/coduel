@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.lang.reflect.Field;
+import java.time.Duration;
 
 @Getter
 @Component
@@ -28,6 +29,16 @@ public class AppProperties {
     // they're a fixed producer/consumer contract, kept as constants in code.)
     @Value("${spring.kafka.bootstrap-servers}")
     private String kafkaBootstrapServers;
+
+    // Where the browser SPA is served. Single source of truth used for BOTH the OAuth2 success
+    // redirect and the CORS allowed origin (one frontend = one browser origin allowed to call us).
+    @Value("${frontend.base-url}")
+    private String frontendBaseUrl;
+
+    // Session lifetime — also used as the SESSION cookie Max-Age. Mirrors spring.session.timeout
+    // (which Spring uses for the Redis TTL) so the cookie and server-side session share one value.
+    @Value("${spring.session.timeout}")
+    private Duration sessionTimeout;
 
     @PostConstruct
     public void init() {

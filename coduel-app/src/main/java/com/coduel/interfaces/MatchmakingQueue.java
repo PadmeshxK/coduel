@@ -9,4 +9,7 @@ public interface MatchmakingQueue {
 
     // Atomically removes and returns one waiting player, or null if none are waiting.
     Long poll();
+
+    // Removes the user from the queue (cancel / cleanup). No-op if absent.
+    void remove(Long userId);
 }

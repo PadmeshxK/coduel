@@ -15,11 +15,14 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Autowired
     private MatchSubscriptionInterceptor matchSubscriptionInterceptor;
+    @Autowired
+    private AppProperties appProperties;
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
-        // clients open the socket at /coduel/ws (the handshake carries the session cookie -> authenticated)
-        registry.addEndpoint("/ws");
+        // clients open the socket at /coduel/ws (the handshake carries the session cookie -> authenticated).
+        // Allow the SPA origin — Spring rejects cross-origin handshakes by default.
+        registry.addEndpoint("/ws").setAllowedOrigins(appProperties.getFrontendBaseUrl());
     }
 
     @Override

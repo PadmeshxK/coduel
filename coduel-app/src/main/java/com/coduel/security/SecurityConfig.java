@@ -1,27 +1,45 @@
 package com.coduel.security;
 
+import com.coduel.config.AppProperties;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+import java.util.List;
 
 @Configuration
 public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
-                                                   CoduelOidcUserService oidcUserService) throws Exception {
+                                                   CoduelOidcUserService oidcUserService,
+                                                   AppProperties appProperties) throws Exception {
         http
+                // Enable CORS using the CorsConfigurationSource bean below (preflight + cross-origin SPA).
+                .cors(Customizer.withDefaults())
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/health", "/error").permitAll()
                         // public catalog: browsing problems doesn't require login
                         .requestMatchers(HttpMethod.GET, "/problems", "/problems/**").permitAll()
                         .anyRequest().authenticated()
                 )
+                // SPA-friendly: unauthenticated API calls get 401 (the frontend routes to /login),
+                // not the default 302 redirect to Google that an XHR can't follow.
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint((req, res, authEx) ->
+                                res.sendError(HttpServletResponse.SC_UNAUTHORIZED))
+                )
                 .oauth2Login(oauth -> oauth
                         .userInfoEndpoint(info -> info.oidcUserService(oidcUserService))
+                        // After Google login, bounce to the SPA (configurable per env), not the backend root.
+                        .defaultSuccessUrl(appProperties.getFrontendBaseUrl(), true)
                 )
                 .logout(logout -> logout
                         .logoutUrl("/logout")                 // POST /coduel/logout
@@ -34,5 +52,21 @@ public class SecurityConfig {
                 // Disabled now so the API stays curl-testable while there's no browser frontend.
                 .csrf(csrf -> csrf.disable());
         return http.build();
+    }
+
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource(AppProperties appProperties) {
+        CorsConfiguration config = new CorsConfiguration();
+        // Single source of truth: the SPA origin (frontend.base-url). Explicit origin (NOT "*")
+        // is required because we send the SESSION cookie cross-origin.
+        config.setAllowedOrigins(List.of(appProperties.getFrontendBaseUrl()));
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        config.setAllowedHeaders(List.of("*"));
+        config.setAllowCredentials(true);   // let the browser attach/receive the SESSION cookie
+        config.setMaxAge(3600L);            // cache the preflight response for 1h
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", config);
+        return source;
     }
 }

@@ -15,6 +15,8 @@ public class MatchEventData {
     private Long submissionId;
     private Long userId;
     private Verdict verdict;
+    private Integer passedTests;
+    private Integer totalTests;
 
     // MATCH_OVER
     private Long winnerUserId;

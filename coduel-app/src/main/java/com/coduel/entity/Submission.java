@@ -51,4 +51,13 @@ public class Submission extends BaseEntity {
 
     // nullable until judged: the judge worker fills this in (step 4).
     private Long runtimeMs;
+
+    // judging detail: how many test cases passed out of the total (set by the judge; null until judged).
+    private Integer passedTests;
+    private Integer totalTests;
+
+    // outbox flag: false until the judge request has been relayed to Kafka. The relay flips it true,
+    // so persistence + "needs dispatch" are one atomic write (no dual-write race, no orphan PENDING).
+    @Column(nullable = false)
+    private boolean dispatched = false;
 }

@@ -9,6 +9,7 @@ import java.util.List;
 @Setter
 public class ProblemData {
 
+    private Long id;
     private String slug;
     private String title;
     private String statement;

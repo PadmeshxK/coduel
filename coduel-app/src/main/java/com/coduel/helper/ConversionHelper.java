@@ -6,6 +6,8 @@ import com.coduel.entity.Match;
 import com.coduel.entity.Problem;
 import com.coduel.entity.Submission;
 import com.coduel.entity.TestCase;
+import com.coduel.entity.User;
+import com.coduel.entity.Leaderboard;
 import com.coduel.execution.model.request.ExecRequest;
 import com.coduel.execution.model.response.ExecResponse;
 import com.coduel.model.constant.GameMode;
@@ -14,11 +16,15 @@ import com.coduel.model.constant.MatchEventType;
 import com.coduel.model.constant.MatchmakingStatus;
 import com.coduel.model.constant.Verdict;
 import com.coduel.model.data.ExecutionData;
+import com.coduel.model.data.MatchData;
 import com.coduel.model.data.MatchEventData;
+import com.coduel.model.data.MatchParticipantData;
 import com.coduel.model.data.MatchmakingData;
 import com.coduel.model.data.ProblemData;
+import com.coduel.model.data.LeaderboardData;
 import com.coduel.model.data.SubmissionData;
 import com.coduel.model.data.TestCaseData;
+import com.coduel.model.data.UserProfileData;
 import com.coduel.model.form.ExecutionForm;
 import com.coduel.model.form.ProblemForm;
 import com.coduel.model.form.SubmissionForm;
@@ -96,6 +102,7 @@ public class ConversionHelper {
     public static ProblemData convert(ProblemWithVisibleTestCases result) {
         Problem problem = result.getProblem();
         ProblemData data = new ProblemData();
+        data.setId(problem.getId());
         data.setSlug(problem.getSlug());
         data.setTitle(problem.getTitle());
         data.setStatement(problem.getStatement());
@@ -137,6 +144,8 @@ public class ConversionHelper {
         data.setLanguage(submission.getLanguage());
         data.setVerdict(submission.getVerdict());
         data.setRuntimeMs(submission.getRuntimeMs());
+        data.setPassedTests(submission.getPassedTests());
+        data.setTotalTests(submission.getTotalTests());
         return data;
     }
 
@@ -155,12 +164,21 @@ public class ConversionHelper {
         return participant;
     }
 
-    public static MatchEventData toSubmissionJudgedEvent(Submission submission, Verdict verdict) {
+    public static MatchEventData toSubmissionJudgedEvent(Submission submission, Verdict verdict,
+                                                         int passedTests, int totalTests) {
         MatchEventData event = new MatchEventData();
         event.setType(MatchEventType.SUBMISSION_JUDGED);
         event.setSubmissionId(submission.getId());
         event.setUserId(submission.getUserId());
         event.setVerdict(verdict);
+        event.setPassedTests(passedTests);
+        event.setTotalTests(totalTests);
+        return event;
+    }
+
+    public static MatchEventData toMatchReadyEvent() {
+        MatchEventData event = new MatchEventData();
+        event.setType(MatchEventType.MATCH_READY);
         return event;
     }
 
@@ -171,13 +189,58 @@ public class ConversionHelper {
         return event;
     }
 
-    public static MatchmakingData toMatchmakingData(MatchmakingStatus status, Match match) {
+    public static MatchParticipantData toMatchParticipantData(User user) {
+        MatchParticipantData data = new MatchParticipantData();
+        data.setUserId(user.getId());
+        data.setDisplayName(user.getDisplayName());
+        data.setAvatarUrl(user.getAvatarUrl());
+        return data;
+    }
+
+    public static MatchData toMatchData(Match match, Problem problem, List<MatchParticipantData> participants) {
+        MatchData data = new MatchData();
+        data.setMatchId(match.getId());
+        data.setState(match.getState());
+        data.setSlug(problem.getSlug());
+        data.setProblemTitle(problem.getTitle());
+        data.setWinnerUserId(match.getWinnerUserId());
+        data.setParticipants(participants);
+        return data;
+    }
+
+    public static MatchmakingData toMatchmakingData(MatchmakingStatus status, Match match, String slug) {
         MatchmakingData data = new MatchmakingData();
         data.setStatus(status);
+        data.setSlug(slug);
         if (match != null) {
             data.setMatchId(match.getId());
             data.setProblemId(match.getProblemId());
         }
+        return data;
+    }
+
+    public static Leaderboard toLeaderboard(Long userId) {
+        Leaderboard leaderboard = new Leaderboard();
+        leaderboard.setUserId(userId);
+        return leaderboard;
+    }
+
+    public static LeaderboardData toLeaderboardData(User user, Leaderboard leaderboard) {
+        LeaderboardData data = new LeaderboardData();
+        data.setUserId(user.getId());
+        data.setDisplayName(user.getDisplayName());
+        data.setAvatarUrl(user.getAvatarUrl());
+        data.setWins(leaderboard.getWins());
+        data.setLosses(leaderboard.getLosses());
+        return data;
+    }
+
+    public static UserProfileData toUserProfileData(User user) {
+        UserProfileData data = new UserProfileData();
+        data.setId(user.getId());
+        data.setEmail(user.getEmail());
+        data.setDisplayName(user.getDisplayName());
+        data.setAvatarUrl(user.getAvatarUrl());
         return data;
     }
 

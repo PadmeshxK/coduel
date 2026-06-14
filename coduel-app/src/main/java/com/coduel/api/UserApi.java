@@ -38,6 +38,10 @@ public class UserApi extends AbstractApi {
         return existing;
     }
 
+    public List<User> searchByDisplayNamePrefix(String prefix, int limit) {
+        return userDao.selectByDisplayNamePrefix(prefix, limit);
+    }
+
     public User getCheckById(Long id) throws ApiException {
         User user = userDao.selectById(id);
         if (Objects.isNull(user)) {
@@ -51,6 +55,15 @@ public class UserApi extends AbstractApi {
         if (Objects.isNull(user)) {
             throw new ApiException(ApiStatus.NOT_FOUND, Errors.ERR_109, List.of());
         }
+        return user;
+    }
+
+    // Profile edit: the entity is managed within this @Transactional method, so the change is
+    // dirty-checked and flushed on commit (no explicit persist needed).
+    public User updateProfile(String googleId, String displayName, String avatarUrl) throws ApiException {
+        User user = getCheckByGoogleId(googleId);
+        user.setDisplayName(displayName);
+        user.setAvatarUrl(avatarUrl);
         return user;
     }
 }

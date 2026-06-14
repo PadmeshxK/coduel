@@ -24,4 +24,10 @@ public class RedisMatchmakingQueue implements MatchmakingQueue {
         String userId = redis.opsForList().rightPop(QUEUE_KEY);
         return userId == null ? null : Long.valueOf(userId);
     }
+
+    @Override
+    public void remove(Long userId) {
+        // count = 0 -> remove every occurrence of this user from the list.
+        redis.opsForList().remove(QUEUE_KEY, 0, userId.toString());
+    }
 }

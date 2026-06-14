@@ -34,9 +34,21 @@ public class SubmissionApi extends AbstractApi {
     }
 
     // Loads the managed entity and mutates it; JPA dirty-checking flushes the UPDATE on commit.
-    public void updateVerdict(Long id, Verdict verdict, Long runtimeMs) throws ApiException {
+    public void updateVerdict(Long id, Verdict verdict, Long runtimeMs, Integer passedTests, Integer totalTests)
+            throws ApiException {
         Submission submission = getCheckById(id);
         submission.setVerdict(verdict);
         submission.setRuntimeMs(runtimeMs);
+        submission.setPassedTests(passedTests);
+        submission.setTotalTests(totalTests);
+    }
+
+    // Outbox: submissions persisted but not yet relayed to the judge queue.
+    public List<Submission> getUndispatched(int limit) {
+        return submissionDao.selectUndispatched(limit);
+    }
+
+    public void markDispatched(Long id) throws ApiException {
+        getCheckById(id).setDispatched(true);
     }
 }

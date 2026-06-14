@@ -45,4 +45,19 @@ public class MatchApi extends AbstractApi {
         match.setEndedAt(Instant.now());
         return true;
     }
+
+    // Timed out, no winner; idempotent. Returns true only on the ACTIVE -> EXPIRED transition.
+    public boolean expire(Long id) throws ApiException {
+        Match match = getCheckById(id);
+        if (match.getState() != MatchState.ACTIVE) {
+            return false;
+        }
+        match.setState(MatchState.EXPIRED);
+        match.setEndedAt(Instant.now());
+        return true;
+    }
+
+    public List<Match> getActiveOlderThan(Instant cutoff) {
+        return matchDao.selectActiveOlderThan(cutoff);
+    }
 }

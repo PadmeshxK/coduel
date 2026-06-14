@@ -11,7 +11,7 @@ import java.time.Instant;
 @Getter
 @Setter
 @Entity
-// Named "Matches" so the table resolves to "matches" (no @Table override) — "match" is reserved in MySQL.
+// Singular entity name; table mapped to "matches" because "match" is reserved in MySQL.
 @Table(name = "matches")
 public class Match extends BaseEntity {
 

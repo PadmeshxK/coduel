@@ -12,4 +12,6 @@ public class MatchmakingData {
     // null while WAITING; set once MATCHED.
     private Long matchId;
     private Long problemId;
+    // slug of the duel's problem — the SPA fetches the problem (and its id) by slug.
+    private String slug;
 }

@@ -16,4 +16,6 @@ public class SubmissionData {
     private Language language;
     private Verdict verdict;
     private Long runtimeMs;
+    private Integer passedTests;
+    private Integer totalTests;
 }

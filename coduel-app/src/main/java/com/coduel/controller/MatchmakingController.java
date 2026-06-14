@@ -27,4 +27,9 @@ public class MatchmakingController {
     public MatchmakingData status(@AuthenticationPrincipal OidcUser principal) throws ApiException {
         return matchmakingDto.status(principal.getSubject());
     }
+
+    @PostMapping("/leave")
+    public void leave(@AuthenticationPrincipal OidcUser principal) throws ApiException {
+        matchmakingDto.leave(principal.getSubject());
+    }
 }

@@ -7,7 +7,6 @@ import com.coduel.common.exception.ApiException;
 import com.coduel.entity.Submission;
 import com.coduel.flow.SubmissionFlow;
 import com.coduel.helper.ConversionHelper;
-import com.coduel.interfaces.JudgeDispatcher;
 import com.coduel.model.data.SubmissionData;
 import com.coduel.model.form.SubmissionForm;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,8 +22,6 @@ public class SubmissionDto extends AbstractDto {
     private SubmissionApi submissionApi;
     @Autowired
     private UserApi userApi;
-    @Autowired
-    private JudgeDispatcher judgeDispatcher;
 
     @Transactional(rollbackFor = ApiException.class)
     public SubmissionData create(SubmissionForm form, String googleId) throws ApiException {
@@ -33,10 +30,10 @@ public class SubmissionDto extends AbstractDto {
         Submission submission = ConversionHelper.convert(form);
         // Identity from the session, not the form: resolve the app userId from the principal's googleId.
         submission.setUserId(userApi.getCheckByGoogleId(googleId).getId());
-        // Flow validates match participation + persists; it joins this transaction (REQUIRED), so the
-        // commit is still after dispatch -> a Kafka dispatch failure rolls the persist back (no orphan).
+        // Persist with dispatched=false (entity default). No Kafka here: the SubmissionRelay turns it into
+        // a judge request after commit. Persisting the row AND "needs judging" is thus one atomic write —
+        // no dual-write race (the judge only ever reads committed rows) and no orphan PENDING.
         Submission saved = submissionFlow.create(submission);
-        judgeDispatcher.dispatch(saved);
         return ConversionHelper.convert(saved);
     }
 

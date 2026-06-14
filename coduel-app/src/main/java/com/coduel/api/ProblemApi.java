@@ -57,7 +57,7 @@ public class ProblemApi extends AbstractApi {
         return problem;
     }
 
-    public Problem getRandomCheck() throws ApiException {
+    public Problem getCheckRandomProblem() throws ApiException {
         Problem problem = problemDao.selectRandom();
         if (Objects.isNull(problem)) {
             throw new ApiException(ApiStatus.BAD_DATA, Errors.ERR_111, List.of());

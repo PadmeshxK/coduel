@@ -10,6 +10,8 @@ import com.coduel.execution.model.response.ExecResponse;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -23,6 +25,10 @@ public class ProcessBuilderExecutor implements CodeExecutor {
     private static final String STDIN_FILE = "input.txt";
     private static final String STDOUT_FILE = "stdout.txt";
     private static final String STDERR_FILE = "stderr.txt";
+
+    // Cap per stream — a runaway program (e.g. an infinite print loop) can't OOM us or balloon the
+    // response. We read at most this many bytes back even if the captured file is far larger.
+    private static final int MAX_OUTPUT_BYTES = 64 * 1024;
 
     private static final Map<Language, LanguageConfig> CONFIG_MAP = ConversionHelper.constructConfig();
 
@@ -105,12 +111,25 @@ public class ProcessBuilderExecutor implements CodeExecutor {
     private ExecResponse buildResponse(Path workDir, int exitCode, boolean timedOut, long durationMs)
             throws IOException {
         ExecResponse response = new ExecResponse();
-        response.setStdout(Files.readString(workDir.resolve(STDOUT_FILE)));
-        response.setStderr(Files.readString(workDir.resolve(STDERR_FILE)));
+        response.setStdout(readCapped(workDir.resolve(STDOUT_FILE)));
+        response.setStderr(readCapped(workDir.resolve(STDERR_FILE)));
         response.setExitCode(exitCode);
         response.setTimedOut(timedOut);
         response.setDurationMs(durationMs);
         return response;
+    }
+
+    /** Read at most MAX_OUTPUT_BYTES from a captured stream, flagging truncation — never loads a
+     *  giant file fully into memory. */
+    private String readCapped(Path file) throws IOException {
+        long size = Files.size(file);
+        try (InputStream in = Files.newInputStream(file)) {
+            String text = new String(in.readNBytes(MAX_OUTPUT_BYTES), StandardCharsets.UTF_8);
+            if (size > MAX_OUTPUT_BYTES) {
+                return text + "\n… output truncated (" + size + " bytes total)";
+            }
+            return text;
+        }
     }
 
     /** Recursively delete the temp work dir; cleanup failure must not mask the real result. */
