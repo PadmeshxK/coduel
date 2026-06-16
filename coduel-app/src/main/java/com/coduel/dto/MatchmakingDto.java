@@ -51,6 +51,7 @@ public class MatchmakingDto {
             return matched(existing);
         }
 
+        Problem problem = problemApi.getCheckRandomProblem();
         Long opponent = matchmakingQueue.poll();
         // No one waiting, we polled ourselves, or the polled player is a stale ghost already in a
         // match -> just wait.
@@ -60,7 +61,6 @@ public class MatchmakingDto {
             return ConversionHelper.toMatchmakingData(MatchmakingStatus.WAITING, null, null);
         }
 
-        Problem problem = problemApi.getCheckRandomProblem();
         Match match = matchFlow.create(GameMode.DUEL, problem.getId(), List.of(opponent, userId));
         // both players must actually show up within the start grace, else the no-show forfeits.
         matchPresenceService.scheduleStartDeadline(match.getId());

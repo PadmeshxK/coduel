@@ -7,6 +7,7 @@ import com.coduel.entity.MatchParticipant;
 import com.coduel.flow.MatchFlow;
 import com.coduel.helper.ConversionHelper;
 import com.coduel.interfaces.MatchEventPublisher;
+import com.coduel.model.constant.MatchEndReason;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,7 +41,7 @@ public class MatchPresenceService {
     // Grace so a refresh/transient drop doesn't count as leaving.
     private static final long FORFEIT_GRACE_MS = 30_000;
     // After a match is created, how long a player has to actually show up (subscribe) before a no-show.
-    private static final long START_GRACE_MS = 30_000;
+    private static final long START_GRACE_MS = 15_000;
 
     @Autowired
     private UserApi userApi;
@@ -124,8 +125,9 @@ public class MatchPresenceService {
         try {
             Long opponent = opponentOf(matchId, userId);
             // finish() is idempotent: no-op if the match already ended (e.g. someone solved it).
-            if (Objects.nonNull(opponent) && matchFlow.finish(matchId, opponent)) {
-                matchEventPublisher.publish(matchId, ConversionHelper.toMatchOverEvent(opponent));
+            if (Objects.nonNull(opponent) && matchFlow.finish(matchId, opponent, MatchEndReason.OPPONENT_FORFEIT)) {
+                matchEventPublisher.publish(matchId,
+                        ConversionHelper.toMatchOverEvent(opponent, MatchEndReason.OPPONENT_FORFEIT));
                 log.info("Match {} forfeited by user {} -> user {} wins", matchId, userId, opponent);
             }
         } catch (Exception e) {
@@ -152,13 +154,15 @@ public class MatchPresenceService {
             }
             if (presentParticipants.size() == 1) {
                 Long winner = presentParticipants.get(0);
-                if (matchFlow.finish(matchId, winner)) {
-                    matchEventPublisher.publish(matchId, ConversionHelper.toMatchOverEvent(winner));
+                if (matchFlow.finish(matchId, winner, MatchEndReason.OPPONENT_NO_SHOW)) {
+                    matchEventPublisher.publish(matchId,
+                            ConversionHelper.toMatchOverEvent(winner, MatchEndReason.OPPONENT_NO_SHOW));
                     log.info("Match {} won by walkover (opponent no-show) -> user {}", matchId, winner);
                 }
-            } else if (matchApi.expire(matchId)) {
+            } else if (matchApi.expire(matchId, MatchEndReason.NO_SHOW_VOID)) {
                 // nobody showed up -> void the match
-                matchEventPublisher.publish(matchId, ConversionHelper.toMatchOverEvent(null));
+                matchEventPublisher.publish(matchId,
+                        ConversionHelper.toMatchOverEvent(null, MatchEndReason.NO_SHOW_VOID));
                 log.info("Match {} voided (no players showed up)", matchId);
             }
         } catch (Exception e) {

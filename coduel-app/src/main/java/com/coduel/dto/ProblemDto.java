@@ -25,8 +25,17 @@ public class ProblemDto extends AbstractDto {
         checkValid(form);
         trim(form);
         Problem problem = ConversionHelper.convert(form);
-        List<TestCase> testCases = form.getTestCases().stream().map(ConversionHelper::convert).toList();
+        List<TestCase> testCases = ConversionHelper.toTestCases(form);
         return ConversionHelper.convert(problemFlow.create(problem, testCases));
+    }
+
+    // Validate + convert the whole batch up front, then persist it in one transaction (the Flow).
+    public List<ProblemData> createBatch(List<ProblemForm> forms) throws ApiException {
+        checkValid(forms);
+        trim(forms);
+        List<Problem> problems = ConversionHelper.toProblems(forms);
+        List<List<TestCase>> testCasesPerProblem = ConversionHelper.toTestCaseGroups(forms);
+        return ConversionHelper.toProblemDataList(problemFlow.createBatch(problems, testCasesPerProblem));
     }
 
     public ProblemData getBySlug(String slug) throws ApiException {

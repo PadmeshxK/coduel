@@ -36,7 +36,7 @@ public class SubmissionRelay {
         List<Submission> pending = submissionApi.getUndispatched(BATCH);
         for (Submission submission : pending) {
             try {
-                judgeDispatcher.dispatch(submission); // synchronous Kafka send
+                judgeDispatcher.dispatch(submission); // synchronous send
                 submissionApi.markDispatched(submission.getId());
             } catch (Exception e) {
                 // Leave dispatched=false -> retried next sweep. Broker is likely down, so stop here

@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Component
@@ -31,6 +32,17 @@ public class ProblemFlow {
         }
         List<TestCase> visibleTestCases = testCases.stream().filter(testCase -> !testCase.isHidden()).toList();
         return ConversionHelper.toResult(saved, visibleTestCases);
+    }
+
+    // Persists every problem + its test cases in ONE transaction — if any (e.g. a duplicate slug)
+    // fails, the whole batch rolls back. Self-call to create() joins this transaction.
+    public List<ProblemWithVisibleTestCases> createBatch(List<Problem> problems,
+                                                         List<List<TestCase>> testCasesPerProblem) throws ApiException {
+        List<ProblemWithVisibleTestCases> results = new ArrayList<>();
+        for (int i = 0; i < problems.size(); i++) {
+            results.add(create(problems.get(i), testCasesPerProblem.get(i)));
+        }
+        return results;
     }
 
     public ProblemWithVisibleTestCases getWithVisibleTestCases(String slug) throws ApiException {

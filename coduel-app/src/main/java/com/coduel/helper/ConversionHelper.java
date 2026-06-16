@@ -11,6 +11,7 @@ import com.coduel.entity.Leaderboard;
 import com.coduel.execution.model.request.ExecRequest;
 import com.coduel.execution.model.response.ExecResponse;
 import com.coduel.model.constant.GameMode;
+import com.coduel.model.constant.MatchEndReason;
 import com.coduel.model.constant.MatchState;
 import com.coduel.model.constant.MatchEventType;
 import com.coduel.model.constant.MatchmakingStatus;
@@ -90,6 +91,24 @@ public class ConversionHelper {
         testCase.setExpectedOutput(form.getExpectedOutput());
         testCase.setHidden(form.isHidden());
         return testCase;
+    }
+
+    // ---- batch helpers: keep the form→entity stream plumbing out of the Dto ----
+
+    public static List<TestCase> toTestCases(ProblemForm form) {
+        return form.getTestCases().stream().map(ConversionHelper::convert).toList();
+    }
+
+    public static List<Problem> toProblems(List<ProblemForm> forms) {
+        return forms.stream().map(ConversionHelper::convert).toList();
+    }
+
+    public static List<List<TestCase>> toTestCaseGroups(List<ProblemForm> forms) {
+        return forms.stream().map(ConversionHelper::toTestCases).toList();
+    }
+
+    public static List<ProblemData> toProblemDataList(List<ProblemWithVisibleTestCases> results) {
+        return results.stream().map(ConversionHelper::convert).toList();
     }
 
     public static TestCaseData convert(TestCase testCase) {
@@ -182,10 +201,11 @@ public class ConversionHelper {
         return event;
     }
 
-    public static MatchEventData toMatchOverEvent(Long winnerUserId) {
+    public static MatchEventData toMatchOverEvent(Long winnerUserId, MatchEndReason reason) {
         MatchEventData event = new MatchEventData();
         event.setType(MatchEventType.MATCH_OVER);
         event.setWinnerUserId(winnerUserId);
+        event.setEndReason(reason);
         return event;
     }
 
@@ -204,6 +224,10 @@ public class ConversionHelper {
         data.setSlug(problem.getSlug());
         data.setProblemTitle(problem.getTitle());
         data.setWinnerUserId(match.getWinnerUserId());
+        data.setEndReason(match.getEndReason());
+        // createdAt is the match start (see Match entity); endedAt is null while live.
+        data.setStartedAtMs(match.getCreatedAt() != null ? match.getCreatedAt().toEpochMilli() : null);
+        data.setEndedAtMs(match.getEndedAt() != null ? match.getEndedAt().toEpochMilli() : null);
         data.setParticipants(participants);
         return data;
     }

@@ -10,8 +10,10 @@ import com.coduel.execution.interfaces.CodeExecutor;
 import com.coduel.execution.model.response.ExecResponse;
 import com.coduel.flow.JudgeFlow;
 import com.coduel.flow.MatchFlow;
+import com.coduel.flow.SubmissionFlow;
 import com.coduel.helper.ConversionHelper;
 import com.coduel.interfaces.MatchEventPublisher;
+import com.coduel.model.constant.MatchEndReason;
 import com.coduel.model.constant.Verdict;
 import com.coduel.model.result.JudgingInputs;
 import lombok.extern.log4j.Log4j2;
@@ -36,6 +38,8 @@ public class JudgeDto {
     private SubmissionApi submissionApi;
     @Autowired
     private MatchFlow matchFlow;
+    @Autowired
+    private SubmissionFlow submissionFlow;
     @Autowired
     private MatchEventPublisher matchEventPublisher;
     @Autowired
@@ -77,12 +81,29 @@ public class JudgeDto {
             matchEventPublisher.publish(matchId,
                     ConversionHelper.toSubmissionJudgedEvent(submission, verdict, passedTests, totalTests));
 
-            // Win-condition (duel): first ACCEPTED in an ACTIVE match wins it. Race-free because Kafka
-            // judges a match's submissions in receipt order on one partition. finish() is idempotent;
-            // announce MATCH_OVER only on the transition. (Pluggable GameMode/WinCondition slots in here.)
-            if (verdict == Verdict.ACCEPTED && matchFlow.finish(matchId, submission.getUserId())) {
-                matchEventPublisher.publish(matchId, ConversionHelper.toMatchOverEvent(submission.getUserId()));
+            Long winnerId = submissionFlow.getMatchWinner(matchId);
+            if(Objects.nonNull(winnerId)){
+                if(matchFlow.finish(matchId, winnerId, MatchEndReason.SOLVED)){
+                    matchEventPublisher.publish(matchId,
+                            ConversionHelper.toMatchOverEvent(winnerId, MatchEndReason.SOLVED));
+                }
             }
+        }
+    }
+
+    // Terminal failure path: judging never produced a verdict (DLQ exhaustion or orphan sweep).
+    // Idempotent — only the PENDING -> INTERNAL_ERROR transition publishes, exactly once — so the
+    // user (and the duel scoreboard) stops waiting and sees a definitive result.
+    public void markInternalError(Long submissionId) throws ApiException {
+        Submission submission = submissionApi.failIfPending(submissionId);
+        if (Objects.isNull(submission)) {
+            return; // already resolved by the real judge or a prior failure handler
+        }
+        log.warn("Submission {} -> INTERNAL_ERROR (judging did not complete)", submissionId);
+        Long matchId = submission.getMatchId();
+        if (Objects.nonNull(matchId)) {
+            matchEventPublisher.publish(matchId,
+                    ConversionHelper.toSubmissionJudgedEvent(submission, Verdict.INTERNAL_ERROR, 0, 0));
         }
     }
 

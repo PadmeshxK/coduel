@@ -7,6 +7,7 @@ import com.coduel.model.data.ProblemData;
 import com.coduel.model.form.ProblemForm;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
+import java.util.List;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -24,6 +25,12 @@ public class ProblemController {
     @PostMapping
     public ProblemData create(@RequestBody ProblemForm form) throws ApiException {
         return problemDto.create(form);
+    }
+
+    // Bulk seed: all-or-nothing. A duplicate slug (or any invalid form) rolls the whole batch back.
+    @PostMapping("/batch")
+    public List<ProblemData> createBatch(@RequestBody List<ProblemForm> forms) throws ApiException {
+        return problemDto.createBatch(forms);
     }
 
     @GetMapping
