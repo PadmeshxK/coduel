@@ -8,7 +8,7 @@ import com.coduel.entity.Problem;
 import com.coduel.entity.Submission;
 import com.coduel.entity.TestCase;
 import com.coduel.helper.ConversionHelper;
-import com.coduel.model.result.JudgingInputs;
+import com.coduel.model.result.JudgingInputResult;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,10 +28,10 @@ public class JudgeFlow {
 
     // Orchestrates the three Apis needed to judge a submission: the submission, its problem,
     // and all of that problem's test cases (visible + hidden).
-    public JudgingInputs loadInputs(Long submissionId) throws ApiException {
+    public JudgingInputResult loadInputs(Long submissionId) throws ApiException {
         Submission submission = submissionApi.getCheckById(submissionId);
         Problem problem = problemApi.getCheckById(submission.getProblemId());
         List<TestCase> testCases = testCaseApi.getTestCases(problem.getId());
-        return ConversionHelper.toJudgingInputs(submission, problem, testCases);
+        return ConversionHelper.toJudgingInputResult(submission, problem, testCases);
     }
 }

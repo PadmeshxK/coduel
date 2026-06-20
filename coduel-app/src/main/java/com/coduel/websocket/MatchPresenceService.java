@@ -20,7 +20,6 @@ import org.springframework.web.socket.messaging.SessionSubscribeEvent;
 import java.security.Principal;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -91,7 +90,17 @@ public class MatchPresenceService {
 
     // When the subscribe that just happened means every participant is now present, tell both
     // clients the duel can begin (also re-fires on a reconnect, which is harmless on the client).
+    // Only fires for ACTIVE DUEL matches — private rooms are started explicitly by the host.
     private void publishReadyIfAllPresent(Long matchId) {
+        try {
+            com.coduel.entity.Match match = matchApi.getCheckById(matchId);
+            if (match.getState() != com.coduel.model.constant.MatchState.ACTIVE
+                    || match.getGameMode() != com.coduel.model.constant.GameMode.DUEL) {
+                return;
+            }
+        } catch (Exception e) {
+            return;
+        }
         Set<Long> present = presentUserIds(matchId);
         List<MatchParticipant> participants = matchParticipantApi.getByMatchId(matchId);
         boolean allPresent = !participants.isEmpty()
@@ -123,13 +132,34 @@ public class MatchPresenceService {
             return; // reconnected within the grace window
         }
         try {
-            Long opponent = opponentOf(matchId, userId);
-            // finish() is idempotent: no-op if the match already ended (e.g. someone solved it).
-            if (Objects.nonNull(opponent) && matchFlow.finish(matchId, opponent, MatchEndReason.OPPONENT_FORFEIT)) {
-                matchEventPublisher.publish(matchId,
-                        ConversionHelper.toMatchOverEvent(opponent, MatchEndReason.OPPONENT_FORFEIT));
-                log.info("Match {} forfeited by user {} -> user {} wins", matchId, userId, opponent);
+            // Only an in-progress match can be decided by a disconnect (a LOBBY room hasn't started).
+            if (matchApi.getCheckById(matchId).getState() != com.coduel.model.constant.MatchState.ACTIVE) {
+                return;
             }
+            // Mode-agnostic, N-player rule: a disconnect just means that player is no longer present.
+            // The match ends only when presence collapses to one (that player wins) or zero (void).
+            // For a 1v1 duel this is exactly "the opponent wins"; for an N-player room the game plays
+            // on until a single player remains — or until someone solves it first (finish() is
+            // idempotent, so a solve that already ended the match makes this a no-op).
+            Set<Long> present = presentUserIds(matchId);
+            List<Long> remaining = matchParticipantApi.getByMatchId(matchId).stream()
+                    .map(MatchParticipant::getUserId)
+                    .filter(present::contains)
+                    .toList();
+
+            if (remaining.size() == 1) {
+                Long winner = remaining.get(0);
+                if (matchFlow.finish(matchId, winner, MatchEndReason.OPPONENT_FORFEIT)) {
+                    matchEventPublisher.publish(matchId,
+                            ConversionHelper.toMatchOverEvent(winner, MatchEndReason.OPPONENT_FORFEIT));
+                    log.info("Match {}: user {} wins (everyone else disconnected)", matchId, winner);
+                }
+            } else if (remaining.isEmpty() && matchApi.expire(matchId, MatchEndReason.NO_SHOW_VOID)) {
+                matchEventPublisher.publish(matchId,
+                        ConversionHelper.toMatchOverEvent(null, MatchEndReason.NO_SHOW_VOID));
+                log.info("Match {} voided (all players disconnected)", matchId);
+            }
+            // remaining.size() >= 2 -> the match plays on.
         } catch (Exception e) {
             log.warn("Forfeit check failed for match {}: {}", matchId, e.getMessage());
         }
@@ -143,6 +173,9 @@ public class MatchPresenceService {
 
     private void enforceStartDeadline(Long matchId) {
         try {
+            // Only DUEL matches have an enforced start deadline; private rooms use explicit host start.
+            com.coduel.entity.Match matchCheck = matchApi.getCheckById(matchId);
+            if (matchCheck.getGameMode() != com.coduel.model.constant.GameMode.DUEL) return;
             Set<Long> present = presentUserIds(matchId);
             List<Long> presentParticipants = matchParticipantApi.getByMatchId(matchId).stream()
                     .map(MatchParticipant::getUserId)
@@ -177,18 +210,33 @@ public class MatchPresenceService {
                 .collect(Collectors.toSet());
     }
 
+    /**
+     * True if the user is currently watching a match that belongs to the given room. Lobby presence
+     * uses this so a player in the room's arena — actively playing OR lingering on the match-over
+     * screen before auto-returning — still counts as "in the room" and isn't kicked just because
+     * they've left the lobby topic. Without it, a kick scheduled at match start fires during the
+     * post-match linger (no active match yet) and removes everyone, closing the room.
+     */
+    public boolean isUserInRoomMatch(Long userId, Long roomId) {
+        Set<Long> watchedMatchIds = sessions.values().stream()
+                .filter(s -> s.userId.equals(userId))
+                .map(s -> s.matchId)
+                .collect(Collectors.toSet());
+        for (Long matchId : watchedMatchIds) {
+            try {
+                if (roomId.equals(matchApi.getCheckById(matchId).getRoomId())) {
+                    return true;
+                }
+            } catch (Exception ignored) {
+                // match no longer exists — treat as not present in this room's arena
+            }
+        }
+        return false;
+    }
+
     private boolean isPresent(Long userId, Long matchId) {
         return sessions.values().stream()
                 .anyMatch(s -> s.userId.equals(userId) && s.matchId.equals(matchId));
-    }
-
-    private Long opponentOf(Long matchId, Long userId) {
-        for (MatchParticipant participant : matchParticipantApi.getByMatchId(matchId)) {
-            if (!participant.getUserId().equals(userId)) {
-                return participant.getUserId();
-            }
-        }
-        return null;
     }
 
     @PreDestroy

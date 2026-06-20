@@ -13,7 +13,7 @@ import lombok.Setter;
 @Getter
 @Setter
 @Entity
-@Table(name = "test_case", indexes = @Index(name = "idx_testcase_problem", columnList = "problem_id"))
+@Table(indexes = @Index(name = "idx_testcase_problem", columnList = "problem_id"))
 public class TestCase extends BaseEntity {
 
     @Id

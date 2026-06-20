@@ -26,7 +26,24 @@ public enum Errors {
 
     // ===== matchmaking =====
     ERR_111("No problems available to start a match"),
-    ERR_112("You are not a participant of match {}");
+    ERR_112("You are not a participant of match {}"),
+    ERR_125("User {} already forfeited for the match {}"),
+
+    // ===== friends =====
+    ERR_113("No friend request found with id {}"),
+    ERR_114("You can't send a friend request to yourself"),
+    ERR_115("A friend request or friendship already exists with user {}"),
+
+    // ===== private rooms =====
+    ERR_116("Room is full — maximum {} players allowed"),
+    ERR_117("Only the room host can perform this action"),
+    ERR_118("At least 2 players are required to start a match"),
+    ERR_119("This room is no longer open for changes"),
+    ERR_120("No room found with id {}"),
+    ERR_121("You are not a member of room {}"),
+    ERR_122("Everyone must be ready before the match can start"),
+    ERR_123("A match is already in progress in this room"),
+    ERR_124("A player is already in another match — they must finish it first");
 
     private final String message;
 

@@ -8,6 +8,8 @@ import jakarta.validation.constraints.Size;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.util.List;
+
 @Getter
 @Setter
 public class ExecutionForm {
@@ -21,9 +23,10 @@ public class ExecutionForm {
     @Size(max = 64_000, message = "exceeds the maximum allowed size")
     private String code;
 
-    @NoTrim
-    @Size(max = 64_000, message = "exceeds the maximum allowed size")
-    private String stdin;
+    // Cases to run against. Run sends the visible (+ any custom) cases; a blank expectedOutput on a
+    // case means "just run it" (no comparison). Same shape the judge uses for the full case set.
+    @NotNull(message = "testCases is required")
+    private List<TestCaseForm> testCases;
 
     private Long timeoutMs;
 }

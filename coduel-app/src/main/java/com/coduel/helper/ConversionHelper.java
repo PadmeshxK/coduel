@@ -3,11 +3,14 @@ package com.coduel.helper;
 import com.coduel.common.data.PageData;
 import com.coduel.entity.MatchParticipant;
 import com.coduel.entity.Match;
+import com.coduel.entity.Friendship;
 import com.coduel.entity.Problem;
 import com.coduel.entity.Submission;
 import com.coduel.entity.TestCase;
+import com.coduel.entity.RoomMember;
 import com.coduel.entity.User;
 import com.coduel.entity.Leaderboard;
+import com.coduel.execution.model.constant.ExecutionVerdict;
 import com.coduel.execution.model.request.ExecRequest;
 import com.coduel.execution.model.response.ExecResponse;
 import com.coduel.model.constant.GameMode;
@@ -17,7 +20,16 @@ import com.coduel.model.constant.MatchEventType;
 import com.coduel.model.constant.MatchmakingStatus;
 import com.coduel.model.constant.Verdict;
 import com.coduel.model.data.ExecutionData;
+import com.coduel.model.constant.NotificationEventType;
+import com.coduel.model.data.FriendData;
+import com.coduel.model.data.FriendRequestData;
 import com.coduel.model.data.MatchData;
+import com.coduel.model.data.NotificationData;
+import com.coduel.model.data.RoomData;
+import com.coduel.model.data.RoomParticipantData;
+import com.coduel.model.result.RoomDetailResult;
+import com.coduel.model.constant.RoomEventType;
+import com.coduel.model.data.RoomEventData;
 import com.coduel.model.data.MatchEventData;
 import com.coduel.model.data.MatchParticipantData;
 import com.coduel.model.data.MatchmakingData;
@@ -30,9 +42,11 @@ import com.coduel.model.form.ExecutionForm;
 import com.coduel.model.form.ProblemForm;
 import com.coduel.model.form.SubmissionForm;
 import com.coduel.model.form.TestCaseForm;
-import com.coduel.model.result.JudgingInputs;
-import com.coduel.model.result.ProblemWithVisibleTestCases;
+import com.coduel.model.result.IncomingFriendRequestResult;
+import com.coduel.model.result.JudgingInputResult;
+import com.coduel.model.result.VisibleProblemResult;
 
+import java.time.Instant;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -40,39 +54,66 @@ import java.util.stream.Collectors;
 
 public class ConversionHelper {
 
-    public static ExecRequest convert(ExecutionForm form, long timeoutMs) {
-        ExecRequest request = new ExecRequest();
-        request.setLanguage(form.getLanguage());
-        request.setCode(form.getCode());
-        request.setStdin(form.getStdin());
-        request.setTimeout(Duration.ofMillis(timeoutMs));
-        return request;
-    }
-
-    public static JudgingInputs toJudgingInputs(Submission submission, Problem problem, List<TestCase> testCases) {
-        JudgingInputs inputs = new JudgingInputs();
+    public static JudgingInputResult toJudgingInputResult(Submission submission, Problem problem, List<TestCase> testCases) {
+        JudgingInputResult inputs = new JudgingInputResult();
         inputs.setSubmission(submission);
         inputs.setProblem(problem);
         inputs.setTestCases(testCases);
         return inputs;
     }
 
-    public static ExecRequest convert(Submission submission, TestCase testCase, long timeoutMs) {
+    // One execution request carrying the whole job: the source + every test case. The executor loops
+    // them internally, so the judge no longer issues one request per test case.
+    public static ExecRequest toExecRequest(Submission submission, List<TestCase> testCases, long timeoutMs) {
         ExecRequest request = new ExecRequest();
         request.setLanguage(submission.getLanguage());
         request.setCode(submission.getSourceCode());
-        request.setStdin(testCase.getInput());
+        request.setTestCases(testCases.stream().map(ConversionHelper::toExecTestCase).toList());
         request.setTimeout(Duration.ofMillis(timeoutMs));
         return request;
     }
 
-    public static ExecutionData convert(ExecResponse response) {
+    private static com.coduel.execution.model.request.TestCase toExecTestCase(TestCase testCase) {
+        com.coduel.execution.model.request.TestCase execTestCase = new com.coduel.execution.model.request.TestCase();
+        execTestCase.setInput(testCase.getInput());
+        execTestCase.setExpectedOutput(testCase.getExpectedOutput());
+        return execTestCase;
+    }
+
+    // Execution-engine verdict -> domain verdict. The shared names are intentionally identical; the
+    // domain enum only adds PENDING / INTERNAL_ERROR, which the engine never returns.
+    public static Verdict toVerdict(ExecutionVerdict verdict) {
+        return Verdict.valueOf(verdict.name());
+    }
+
+    // Synchronous Run: build the same kind of request the judge uses, from the cases the UI sent.
+    public static ExecRequest toExecRequest(ExecutionForm form, long timeoutMs) {
+        ExecRequest request = new ExecRequest();
+        request.setLanguage(form.getLanguage());
+        request.setCode(form.getCode());
+        request.setTestCases(form.getTestCases().stream().map(ConversionHelper::toExecTestCase).toList());
+        request.setTimeout(Duration.ofMillis(timeoutMs));
+        return request;
+    }
+
+    private static com.coduel.execution.model.request.TestCase toExecTestCase(TestCaseForm testCase) {
+        com.coduel.execution.model.request.TestCase execTestCase = new com.coduel.execution.model.request.TestCase();
+        execTestCase.setInput(testCase.getInput());
+        execTestCase.setExpectedOutput(testCase.getExpectedOutput());
+        return execTestCase;
+    }
+
+    public static ExecutionData convert(ExecResponse response, int totalTests) {
         ExecutionData data = new ExecutionData();
+        data.setVerdict(toVerdict(response.getVerdict()));
+        data.setPassedTests(response.getPassedTests());
+        data.setTotalTests(totalTests);
+        data.setDurationMs(response.getDurationMs());
         data.setStdout(response.getStdout());
         data.setStderr(response.getStderr());
-        data.setExitCode(response.getExitCode());
-        data.setTimedOut(response.isTimedOut());
-        data.setDurationMs(response.getDurationMs());
+        data.setFailedInput(response.getFailedInput());
+        data.setExpectedOutput(response.getExpectedOutput());
+        data.setCompilerLogs(response.getCompilerLogs());
         return data;
     }
 
@@ -107,7 +148,7 @@ public class ConversionHelper {
         return forms.stream().map(ConversionHelper::toTestCases).toList();
     }
 
-    public static List<ProblemData> toProblemDataList(List<ProblemWithVisibleTestCases> results) {
+    public static List<ProblemData> toProblemDataList(List<VisibleProblemResult> results) {
         return results.stream().map(ConversionHelper::convert).toList();
     }
 
@@ -118,7 +159,7 @@ public class ConversionHelper {
         return data;
     }
 
-    public static ProblemData convert(ProblemWithVisibleTestCases result) {
+    public static ProblemData convert(VisibleProblemResult result) {
         Problem problem = result.getProblem();
         ProblemData data = new ProblemData();
         data.setId(problem.getId());
@@ -127,17 +168,21 @@ public class ConversionHelper {
         data.setStatement(problem.getStatement());
         data.setTimeLimitMs(problem.getTimeLimitMs());
         data.setTestCases(result.getVisibleTestCases().stream().map(ConversionHelper::convert).toList());
+        data.setStatus(result.getStatus());
+        if (result.getSubmissions() != null) {
+            data.setSubmissions(result.getSubmissions().stream().map(ConversionHelper::convert).toList());
+        }
         return data;
     }
 
-    public static ProblemWithVisibleTestCases toResult(Problem problem, List<TestCase> visibleTestCases) {
-        ProblemWithVisibleTestCases result = new ProblemWithVisibleTestCases();
+    public static VisibleProblemResult toResult(Problem problem, List<TestCase> visibleTestCases) {
+        VisibleProblemResult result = new VisibleProblemResult();
         result.setProblem(problem);
         result.setVisibleTestCases(visibleTestCases);
         return result;
     }
 
-    public static List<ProblemWithVisibleTestCases> pairWithVisibleTestCases(List<Problem> problems, List<TestCase> visibleTestCases) {
+    public static List<VisibleProblemResult> pairWithVisibleTestCases(List<Problem> problems, List<TestCase> visibleTestCases) {
         Map<Long, List<TestCase>> byProblemId = visibleTestCases.stream()
                 .collect(Collectors.groupingBy(TestCase::getProblemId));
         return problems.stream()
@@ -165,6 +210,8 @@ public class ConversionHelper {
         data.setRuntimeMs(submission.getRuntimeMs());
         data.setPassedTests(submission.getPassedTests());
         data.setTotalTests(submission.getTotalTests());
+        data.setCreatedAtMs(submission.getCreatedAt() != null ? submission.getCreatedAt().toEpochMilli() : null);
+        data.setSourceCode(submission.getSourceCode());
         return data;
     }
 
@@ -209,17 +256,27 @@ public class ConversionHelper {
         return event;
     }
 
-    public static MatchParticipantData toMatchParticipantData(User user) {
+    // A player forfeited while the match plays on — carries who dropped out so the scoreboard updates.
+    public static MatchEventData toPlayerForfeitEvent(Long userId) {
+        MatchEventData event = new MatchEventData();
+        event.setType(MatchEventType.PLAYER_FORFEIT);
+        event.setUserId(userId);
+        return event;
+    }
+
+    public static MatchParticipantData toMatchParticipantData(MatchParticipant participant, User user) {
         MatchParticipantData data = new MatchParticipantData();
-        data.setUserId(user.getId());
+        data.setUserId(participant.getUserId());
         data.setDisplayName(user.getDisplayName());
         data.setAvatarUrl(user.getAvatarUrl());
+        data.setForfeit(participant.isForfeit());
         return data;
     }
 
     public static MatchData toMatchData(Match match, Problem problem, List<MatchParticipantData> participants) {
         MatchData data = new MatchData();
         data.setMatchId(match.getId());
+        data.setRoomId(match.getRoomId());
         data.setState(match.getState());
         data.setSlug(problem.getSlug());
         data.setProblemTitle(problem.getTitle());
@@ -266,6 +323,94 @@ public class ConversionHelper {
         data.setDisplayName(user.getDisplayName());
         data.setAvatarUrl(user.getAvatarUrl());
         return data;
+    }
+
+    public static FriendData toFriendData(User user) {
+        FriendData data = new FriendData();
+        data.setUserId(user.getId());
+        data.setDisplayName(user.getDisplayName());
+        data.setAvatarUrl(user.getAvatarUrl());
+        return data;
+    }
+
+    public static FriendRequestData toFriendRequestData(IncomingFriendRequestResult view) {
+        User requester = view.getRequester();
+        Friendship friendship = view.getFriendship();
+        FriendRequestData data = new FriendRequestData();
+        data.setRequestId(friendship.getId());
+        data.setUserId(requester.getId());
+        data.setDisplayName(requester.getDisplayName());
+        data.setAvatarUrl(requester.getAvatarUrl());
+        data.setCreatedAtMs(friendship.getCreatedAt() != null ? friendship.getCreatedAt().toEpochMilli() : null);
+        return data;
+    }
+
+    public static RoomData toRoomData(RoomDetailResult view) {
+        RoomData data = new RoomData();
+        data.setRoomId(view.getRoom().getId());
+        data.setState(view.getRoom().getState());
+        data.setHost(view.getRequestingUserId().equals(view.getHostId()));
+        data.setMaxPlayers(com.coduel.flow.RoomFlow.MAX_ROOM_PLAYERS);
+        data.setActiveMatchId(view.getActiveMatchId());
+        data.setParticipants(view.getMembers().stream()
+                .map(m -> toRoomParticipantData(m, view.getProfiles().get(m.getUserId()), view.getHostId()))
+                .toList());
+        return data;
+    }
+
+    public static RoomParticipantData toRoomParticipantData(RoomMember member, User user, Long hostId) {
+        RoomParticipantData data = new RoomParticipantData();
+        data.setUserId(member.getUserId());
+        data.setDisplayName(user.getDisplayName());
+        data.setAvatarUrl(user.getAvatarUrl());
+        boolean host = member.getUserId().equals(hostId);
+        data.setHost(host);
+        // Host is implicitly ready (starting is their signal); others reflect their own flag.
+        data.setReady(host || member.isReady());
+        return data;
+    }
+
+    public static NotificationData toRoomInviteNotification(Long roomId, User fromUser) {
+        NotificationData data = new NotificationData();
+        data.setType(NotificationEventType.ROOM_INVITE);
+        data.setRoomId(roomId);
+        data.setFromUserId(fromUser.getId());
+        data.setFromDisplayName(fromUser.getDisplayName());
+        data.setFromAvatarUrl(fromUser.getAvatarUrl());
+        data.setCreatedAtMs(Instant.now().toEpochMilli());
+        return data;
+    }
+
+    public static NotificationData toFriendRequestNotification(Friendship friendship, User requester) {
+        NotificationData data = new NotificationData();
+        data.setType(NotificationEventType.FRIEND_REQUEST);
+        data.setRequestId(friendship.getId());
+        data.setFromUserId(requester.getId());
+        data.setFromDisplayName(requester.getDisplayName());
+        data.setFromAvatarUrl(requester.getAvatarUrl());
+        data.setCreatedAtMs(friendship.getCreatedAt() != null ? friendship.getCreatedAt().toEpochMilli() : null);
+        return data;
+    }
+
+    // ---- room (persistent lobby) topic events ----
+
+    public static RoomEventData toRoomRosterChanged() {
+        RoomEventData event = new RoomEventData();
+        event.setType(RoomEventType.ROSTER_CHANGED);
+        return event;
+    }
+
+    public static RoomEventData toRoomMatchStarted(Long matchId) {
+        RoomEventData event = new RoomEventData();
+        event.setType(RoomEventType.MATCH_STARTED);
+        event.setMatchId(matchId);
+        return event;
+    }
+
+    public static RoomEventData toRoomClosed() {
+        RoomEventData event = new RoomEventData();
+        event.setType(RoomEventType.ROOM_CLOSED);
+        return event;
     }
 
     public static <T> PageData<T> toPage(List<T> content, int page, int size, long totalElements) {

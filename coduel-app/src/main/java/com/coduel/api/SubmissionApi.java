@@ -84,4 +84,14 @@ public class SubmissionApi extends AbstractApi {
 
         return null;
     }
+
+    // A user's submissions for one problem (solo + duel), latest first.
+    public List<Submission> getByUserAndProblem(Long userId, Long problemId) {
+        return submissionDao.selectByUserIdAndProblemId(userId, problemId);
+    }
+
+    // (problemId, verdict) rows, newest first — for building each problem's latest status.
+    public List<Object[]> getProblemStatuses(Long userId) {
+        return submissionDao.selectProblemStatuses(userId);
+    }
 }

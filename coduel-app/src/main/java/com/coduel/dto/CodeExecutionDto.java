@@ -35,10 +35,10 @@ public class CodeExecutionDto extends AbstractDto {
     public ExecutionData executeCode(ExecutionForm form) throws ApiException {
         checkValid(form);
         trim(form);
-        ExecRequest request = ConversionHelper.convert(form, clampTimeout(form.getTimeoutMs()));
+        ExecRequest request = ConversionHelper.toExecRequest(form, clampTimeout(form.getTimeoutMs()));
         try {
             Future<ExecResponse> future = executionExecutor.submit(() -> codeExecutor.run(request));
-            return ConversionHelper.convert(future.get());
+            return ConversionHelper.convert(future.get(), form.getTestCases().size());
         } catch (RejectedExecutionException e) {
             log.warn("Execution rejected: pool and queue are full");
             throw new ApiException(ApiStatus.SERVER_BUSY, Errors.ERR_102, List.of());

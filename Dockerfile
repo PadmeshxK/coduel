@@ -5,10 +5,10 @@ COPY . .
 # -am builds the upstream modules (coduel-common, coduel-execution) that coduel-app needs.
 RUN mvn -q -pl coduel-app -am clean package -DskipTests
 
-# ---- run stage: JRE + python3 (the code-execution engine runs `python3 main.py`) ----
+# ---- run stage: JRE + python3 + g++ (the engine runs `python3 main.py`, or compiles C++ → `./main`) ----
 FROM eclipse-temurin:21-jre
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 \
+    && apt-get install -y --no-install-recommends python3 g++ \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /src/coduel-app/target/coduel-app-*.jar app.jar

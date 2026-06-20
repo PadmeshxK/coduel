@@ -48,7 +48,7 @@ public class MatchApi extends AbstractApi {
         return true;
     }
 
-    // No winner (no-show void / timeout); idempotent. True only on the ACTIVE -> EXPIRED transition.
+    // No winner (no-show void / timeout); idempotent. ACTIVE -> EXPIRED.
     public boolean expire(Long id, MatchEndReason reason) throws ApiException {
         Match match = getCheckById(id);
         if (match.getState() != MatchState.ACTIVE) {
@@ -62,5 +62,10 @@ public class MatchApi extends AbstractApi {
 
     public List<Match> getActiveOlderThan(Instant cutoff) {
         return matchDao.selectActiveOlderThan(cutoff);
+    }
+
+    // The room's in-progress match, or null if the room is idle (back in its lobby).
+    public Match findActiveByRoomId(Long roomId) {
+        return matchDao.selectActiveByRoomId(roomId);
     }
 }

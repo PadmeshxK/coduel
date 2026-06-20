@@ -15,11 +15,12 @@ import com.coduel.helper.ConversionHelper;
 import com.coduel.interfaces.MatchEventPublisher;
 import com.coduel.model.constant.MatchEndReason;
 import com.coduel.model.constant.Verdict;
-import com.coduel.model.result.JudgingInputs;
+import com.coduel.model.result.JudgingInputResult;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -48,46 +49,46 @@ public class JudgeDto {
     private AppProperties properties;
 
     public void judge(Long submissionId) throws ApiException {
-        JudgingInputs inputs = judgeFlow.loadInputs(submissionId);
+        JudgingInputResult inputs = judgeFlow.loadInputs(submissionId);
         Submission submission = inputs.getSubmission();
+
         // Idempotent: a redelivered / double-dispatched submission that's already judged is a no-op.
         if (submission.getVerdict() != Verdict.PENDING) {
             log.info("Submission {} already judged ({}) — skipping", submissionId, submission.getVerdict());
             return;
         }
+
+        // One call does it all: compile once, run every test case, sum the runtimes, stop at the
+        // first failure, and return a single summarized verdict.
+        List<TestCase> testCases = inputs.getTestCases();
         long timeoutMs = resolveTimeoutMs(inputs.getProblem());
+        ExecResponse result = codeExecutor.run(ConversionHelper.toExecRequest(submission, testCases, timeoutMs));
 
-        int totalTests = inputs.getTestCases().size();
-        int passedTests = 0;
-        Verdict verdict = Verdict.ACCEPTED;
-        long runtimeMs = 0;
-        for (TestCase testCase : inputs.getTestCases()) {
-            ExecResponse response = codeExecutor.run(ConversionHelper.convert(submission, testCase, timeoutMs));
-            runtimeMs = Math.max(runtimeMs, response.getDurationMs());
-            verdict = evaluate(response, testCase);
-            if (verdict != Verdict.ACCEPTED) {
-                break; // stop at the first failing test case
-            }
-            passedTests++;
-        }
+        Verdict verdict = ConversionHelper.toVerdict(result.getVerdict());
+        int passedTests = result.getPassedTests();
+        int totalTests = testCases.size();
 
-        submissionApi.updateVerdict(submissionId, verdict, runtimeMs, passedTests, totalTests);
+        submissionApi.updateVerdict(submissionId, verdict, result.getDurationMs(), passedTests, totalTests);
         log.info("Judged submission {} -> {} ({}/{} tests, {} ms)",
-                submissionId, verdict, passedTests, totalTests, runtimeMs);
+                submissionId, verdict, passedTests, totalTests, result.getDurationMs());
+        logFirstError(submissionId, verdict, result);
 
+        if (Objects.nonNull(submission.getMatchId())) {
+            broadcastToMatch(submission, verdict, passedTests, totalTests);
+        }
+    }
+
+    // Live duel: push this submission's verdict to both players, and if it just won the match,
+    // finish it and announce the winner — exactly once (finish() returns false if already ended).
+    private void broadcastToMatch(Submission submission, Verdict verdict, int passedTests, int totalTests)
+            throws ApiException {
         Long matchId = submission.getMatchId();
-        if (Objects.nonNull(matchId)) {
-            // live: both players watching the match see this submission's verdict
-            matchEventPublisher.publish(matchId,
-                    ConversionHelper.toSubmissionJudgedEvent(submission, verdict, passedTests, totalTests));
+        matchEventPublisher.publish(matchId,
+                ConversionHelper.toSubmissionJudgedEvent(submission, verdict, passedTests, totalTests));
 
-            Long winnerId = submissionFlow.getMatchWinner(matchId);
-            if(Objects.nonNull(winnerId)){
-                if(matchFlow.finish(matchId, winnerId, MatchEndReason.SOLVED)){
-                    matchEventPublisher.publish(matchId,
-                            ConversionHelper.toMatchOverEvent(winnerId, MatchEndReason.SOLVED));
-                }
-            }
+        Long winnerId = submissionFlow.getMatchWinner(matchId);
+        if (Objects.nonNull(winnerId) && matchFlow.finish(matchId, winnerId, MatchEndReason.SOLVED)) {
+            matchEventPublisher.publish(matchId, ConversionHelper.toMatchOverEvent(winnerId, MatchEndReason.SOLVED));
         }
     }
 
@@ -107,17 +108,21 @@ public class JudgeDto {
         }
     }
 
-    private Verdict evaluate(ExecResponse response, TestCase testCase) {
-        if (response.isTimedOut()) {
-            return Verdict.TIME_LIMIT_EXCEEDED;
+    // The first failing test case's detail now arrives alongside the verdict (compiler diagnostics
+    // for COMPILE_ERROR, otherwise the program's stderr). Logged, not persisted — we don't surface
+    // hidden test inputs to the opponent.
+    private void logFirstError(Long submissionId, Verdict verdict, ExecResponse response) {
+        if (verdict == Verdict.ACCEPTED) {
+            return;
         }
-        if (response.getExitCode() != 0) {
-            return Verdict.RUNTIME_ERROR;
+        String detail = verdict == Verdict.COMPILE_ERROR ? response.getCompilerLogs() : response.getStderr();
+        if (detail != null && !detail.isBlank()) {
+            log.info("Submission {} first error ({}): {}", submissionId, verdict, abbreviate(detail));
         }
-        // Simple comparison: ignore trailing whitespace/newline differences (robust diffing later).
-        String actual = response.getStdout() == null ? "" : response.getStdout().stripTrailing();
-        String expected = testCase.getExpectedOutput() == null ? "" : testCase.getExpectedOutput().stripTrailing();
-        return actual.equals(expected) ? Verdict.ACCEPTED : Verdict.WRONG_ANSWER;
+    }
+
+    private String abbreviate(String text) {
+        return text.length() <= 500 ? text : text.substring(0, 500) + "…";
     }
 
     private long resolveTimeoutMs(Problem problem) {

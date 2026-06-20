@@ -12,6 +12,8 @@ import java.util.List;
 public class MatchData {
 
     private Long matchId;
+    // null for matchmaking duels; set when this match belongs to a private room (drives "back to lobby").
+    private Long roomId;
     private MatchState state;
     private String slug;
     private String problemTitle;

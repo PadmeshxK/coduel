@@ -4,7 +4,6 @@ import com.coduel.config.AppProperties;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.web.SecurityFilterChain;
@@ -26,8 +25,6 @@ public class SecurityConfig {
                 .cors(Customizer.withDefaults())
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/health", "/error").permitAll()
-                        // public catalog: browsing problems doesn't require login
-                        .requestMatchers(HttpMethod.GET, "/problems", "/problems/**").permitAll()
                         .anyRequest().authenticated()
                 )
                 // SPA-friendly: unauthenticated API calls get 401 (the frontend routes to /login),

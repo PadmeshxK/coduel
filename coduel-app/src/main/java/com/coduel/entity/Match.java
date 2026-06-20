@@ -24,6 +24,9 @@ public class Match extends BaseEntity {
     @Column(nullable = false)
     private GameMode gameMode;
 
+    // null for matchmaking duels; set for a match spawned from a persistent private room.
+    private Long roomId;
+
     @Column(nullable = false)
     private Long problemId;
 

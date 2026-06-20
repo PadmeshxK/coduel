@@ -12,6 +12,7 @@ public class ConversionHelper {
     public static Map<Language, LanguageConfig> constructConfig() {
         Map<Language, LanguageConfig> configMap = new HashMap<>();
         configMap.put(Language.PYTHON, getConfig(Language.PYTHON));
+        configMap.put(Language.CPP, getConfig(Language.CPP));
         return configMap;
     }
 
@@ -21,6 +22,20 @@ public class ConversionHelper {
             case PYTHON:
                 languageConfig.setFileName("main.py");
                 languageConfig.setRunCommand(List.of("python3", "main.py"));
+                break;
+            case CPP:
+                languageConfig.setFileName("main.cpp");
+                languageConfig.setCompileCommand(List.of(
+                        "g++",
+                        "-O2",
+                        "-std=c++20",
+                        "-Wall",
+                        "main.cpp",
+                        "-o",
+                        "main"
+                ));
+                languageConfig.setRunCommand(List.of("./main"));
+                break;
         }
         return languageConfig;
     }

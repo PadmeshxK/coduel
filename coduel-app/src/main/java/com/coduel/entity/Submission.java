@@ -13,11 +13,13 @@ import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Getter
 @Setter
 @Entity
-@Table(name = "submission", indexes = {
+@Table(indexes = {
         @Index(name = "idx_submission_problem", columnList = "problem_id"),
         @Index(name = "idx_submission_match", columnList = "match_id"),
         @Index(name = "idx_submission_user", columnList = "user_id")
@@ -38,15 +40,19 @@ public class Submission extends BaseEntity {
     // nullable: null = solo submission (no duel); set when the submission belongs to a match.
     private Long matchId;
 
+    // VARCHAR, not a native MySQL/TiDB ENUM: adding a language must never require a schema change
+    // (a native enum column truncates unknown values — see the CPP "Data truncated" failure).
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
+    @Column(nullable = false, length = 32)
     private Language language;
 
     @Column(nullable = false, columnDefinition = "TEXT")
     private String sourceCode;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
+    @Column(nullable = false, length = 32)
     private Verdict verdict = Verdict.PENDING;
 
     // nullable until judged: the judge worker fills this in (step 4).

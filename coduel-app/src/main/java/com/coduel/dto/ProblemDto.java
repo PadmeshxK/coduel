@@ -9,7 +9,7 @@ import com.coduel.flow.ProblemFlow;
 import com.coduel.helper.ConversionHelper;
 import com.coduel.model.data.ProblemData;
 import com.coduel.model.form.ProblemForm;
-import com.coduel.model.result.ProblemWithVisibleTestCases;
+import com.coduel.model.result.VisibleProblemResult;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -38,12 +38,12 @@ public class ProblemDto extends AbstractDto {
         return ConversionHelper.toProblemDataList(problemFlow.createBatch(problems, testCasesPerProblem));
     }
 
-    public ProblemData getBySlug(String slug) throws ApiException {
-        return ConversionHelper.convert(problemFlow.getWithVisibleTestCases(slug));
+    public ProblemData getBySlug(String slug, String googleId) throws ApiException {
+        return ConversionHelper.convert(problemFlow.getWithVisibleTestCases(slug, googleId));
     }
 
-    public PageData<ProblemData> getPage(int page, int size) throws ApiException {
-        PageData<ProblemWithVisibleTestCases> result = problemFlow.getPage(page, size);
+    public PageData<ProblemData> getPage(int page, int size, String googleId) throws ApiException {
+        PageData<VisibleProblemResult> result = problemFlow.getPage(page, size, googleId);
         List<ProblemData> content = result.getContent().stream().map(ConversionHelper::convert).toList();
         return ConversionHelper.toPage(content, result.getPage(), result.getSize(), result.getTotalElements());
     }

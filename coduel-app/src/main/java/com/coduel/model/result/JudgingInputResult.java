@@ -11,7 +11,7 @@ import java.util.List;
 /** Everything the judge needs to evaluate a submission, loaded together by JudgeFlow. */
 @Getter
 @Setter
-public class JudgingInputs {
+public class JudgingInputResult {
 
     private Submission submission;
     private Problem problem;

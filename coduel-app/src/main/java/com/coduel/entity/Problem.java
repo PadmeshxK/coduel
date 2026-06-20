@@ -13,7 +13,7 @@ import lombok.Setter;
 @Getter
 @Setter
 @Entity
-@Table(name = "problem", uniqueConstraints = @UniqueConstraint(name = "uk_problem_slug", columnNames = "slug"))
+@Table(uniqueConstraints = @UniqueConstraint(name = "uk_problem_slug", columnNames = "slug"))
 public class Problem extends BaseEntity {
 
     @Id
