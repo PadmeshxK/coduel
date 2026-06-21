@@ -25,6 +25,12 @@ public class ProblemForm {
 
     private Integer timeLimitMs;
 
+    // Optional difficulty rating (Codeforces-style). Left null when the source doesn't provide one.
+    private Integer rating;
+
+    // Optional topic tags (e.g. "dp", "math"). Empty when the source doesn't provide them.
+    private List<String> tags;
+
     @NotEmpty(message = "at least one test case is required")
     @Valid
     private List<TestCaseForm> testCases;

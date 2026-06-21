@@ -4,7 +4,7 @@ import com.coduel.common.exception.ApiException;
 import com.coduel.entity.Room;
 import com.coduel.flow.RoomFlow;
 import com.coduel.helper.ConversionHelper;
-import com.coduel.interfaces.MatchInvitation;
+import com.coduel.interfaces.NotificationInbox;
 import com.coduel.interfaces.RoomEventPublisher;
 import com.coduel.interfaces.UserNotificationPublisher;
 import com.coduel.model.data.NotificationData;
@@ -23,7 +23,7 @@ public class RoomDto {
     @Autowired
     private UserNotificationPublisher userNotificationPublisher;
     @Autowired
-    private MatchInvitation matchInvitation;
+    private NotificationInbox notificationInbox;
 
     public RoomData create(String googleId) throws ApiException {
         Room room = roomFlow.create(googleId);
@@ -40,13 +40,13 @@ public class RoomDto {
         String inviteeGoogleId = result.getInvitee().getGoogleId();
         // Live push for online invitees + persist so it survives a reload / offline gap.
         userNotificationPublisher.publish(inviteeGoogleId, notification);
-        matchInvitation.addInvite(inviteeGoogleId, notification);
+        notificationInbox.add(inviteeGoogleId, notification);
     }
 
     public void join(Long roomId, String googleId) throws ApiException {
         roomFlow.join(roomId, googleId);
         // The invite is consumed — drop it so it stops showing in the joiner's notifications.
-        matchInvitation.removeInvite(googleId, roomId);
+        notificationInbox.remove(googleId, ConversionHelper.roomNotificationId(roomId));
         roomEventPublisher.publish(roomId, ConversionHelper.toRoomRosterChanged());
     }
 

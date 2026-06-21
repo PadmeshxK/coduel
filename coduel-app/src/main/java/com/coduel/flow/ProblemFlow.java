@@ -11,6 +11,8 @@ import com.coduel.entity.Submission;
 import com.coduel.entity.TestCase;
 import com.coduel.helper.ConversionHelper;
 import com.coduel.model.constant.Verdict;
+import com.coduel.model.form.ProblemFilterForm;
+import com.coduel.model.result.FilterOptionsResult;
 import com.coduel.model.result.VisibleProblemResult;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -18,8 +20,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Component
 @Transactional(rollbackFor = ApiException.class)
@@ -60,35 +64,55 @@ public class ProblemFlow {
         List<TestCase> visibleTestCases = testCaseApi.getVisibleTestCases(problem.getId());
         VisibleProblemResult result = ConversionHelper.toResult(problem, visibleTestCases);
         // Bundle the user's submissions so the Solve page needs no extra round-trip on load.
-        if (googleId != null) {
-            Long userId = userApi.getCheckByGoogleId(googleId).getId();
-            result.setSubmissions(submissionApi.getByUserAndProblem(userId, problem.getId()));
-        }
+        Long userId = userApi.getCheckByGoogleId(googleId).getId();
+        result.setSubmissions(submissionApi.getByUserAndProblem(userId, problem.getId()));
         return result;
     }
 
-    public PageData<VisibleProblemResult> getPage(int page, int size, String googleId) throws ApiException {
+    public PageData<VisibleProblemResult> getPage(ProblemFilterForm filter, int page, int size, String googleId)
+            throws ApiException {
         int safePage = Math.max(0, page);
+        // Resolve the user once: needed both for the solved/unsolved bits and the status stamping.
+        Long userId = userApi.getCheckByGoogleId(googleId).getId();
 
-        List<Problem> problems = problemApi.getPage(safePage, size);
+        List<Problem> problems = problemApi.getPage(filter, userId, safePage, size);
         List<Long> problemIds = problems.stream().map(Problem::getId).toList();
         List<TestCase> visibleTestCases = testCaseApi.getVisibleTestCasesByProblemIds(problemIds);
         List<VisibleProblemResult> content = ConversionHelper.pairWithVisibleTestCases(problems, visibleTestCases);
-        attachStatuses(content, googleId);
+        attachStatuses(content, userId);
 
-        return ConversionHelper.toPage(content, safePage, size, problemApi.count());
+        return ConversionHelper.toPage(content, safePage, size, problemApi.count(filter, userId));
     }
 
-    // Stamp each result with the signed-in user's latest verdict per problem (no-op when anonymous).
-    private void attachStatuses(List<VisibleProblemResult> content, String googleId) throws ApiException {
-        if (googleId == null) {
-            return;
-        }
+    // Ordered slugs for a filter — the Solve page uses it to offer "next problem" within the filter.
+    public List<String> getFilteredSlugs(ProblemFilterForm filter, String googleId) throws ApiException {
         Long userId = userApi.getCheckByGoogleId(googleId).getId();
-        Map<Long, Verdict> statuses = new HashMap<>();
+        return problemApi.getFilteredSlugs(filter, userId);
+    }
+
+    // The catalog's distinct ratings + tags — drives the Practice page's filter controls.
+    public FilterOptionsResult getFilterOptions() {
+        return ConversionHelper.toFilterOptionsResult(
+                problemApi.getDistinctRatings(), problemApi.getDistinctTags());
+    }
+
+    // Stamp each result with the user's latest verdict AND a permanent "solved" flag (any ACCEPTED).
+    // Both come from one pass over the user's submissions.
+    private void attachStatuses(List<VisibleProblemResult> content, Long userId) {
+        Map<Long, Verdict> latest = new HashMap<>();
+        Set<Long> solved = new HashSet<>();
         for (Object[] row : submissionApi.getProblemStatuses(userId)) {
-            statuses.putIfAbsent((Long) row[0], (Verdict) row[1]); // rows newest-first → first = latest
+            Long problemId = (Long) row[0];
+            Verdict verdict = (Verdict) row[1];
+            latest.putIfAbsent(problemId, verdict); // rows newest-first → first seen = latest
+            if (verdict == Verdict.ACCEPTED) {
+                solved.add(problemId);
+            }
         }
-        content.forEach(result -> result.setStatus(statuses.get(result.getProblem().getId())));
+        content.forEach(result -> {
+            Long problemId = result.getProblem().getId();
+            result.setStatus(latest.get(problemId));
+            result.setSolved(solved.contains(problemId));
+        });
     }
 }

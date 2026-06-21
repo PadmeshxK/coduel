@@ -18,5 +18,7 @@ public class VisibleProblemResult {
     private Problem problem;
     private List<TestCase> visibleTestCases;
     private Verdict status;
+    // True if the user has ever solved this problem (any ACCEPTED submission) — survives later misses.
+    private boolean solved;
     private List<Submission> submissions;
 }

@@ -9,6 +9,7 @@ import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.ColumnDefault;
 
 @Getter
 @Setter
@@ -30,4 +31,10 @@ public class User extends BaseEntity {
     private String displayName;
 
     private String avatarUrl;
+
+    // Whether the user has explicitly chosen a (unique) display name via setup. New OAuth accounts
+    // start false (name is just the provisional Google name) and are routed to setup on sign-in.
+    @Column(nullable = false)
+    @ColumnDefault("false")
+    private boolean displayNameSet = false;
 }

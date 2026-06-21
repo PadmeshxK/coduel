@@ -23,23 +23,29 @@ public class UserApi extends AbstractApi {
     public User upsert(User incoming) {
         User existing = userDao.selectByGoogleId(incoming.getGoogleId());
         if (Objects.isNull(existing)) {
+            // First login = signup. The Google name is only a provisional default; displayNameSet stays
+            // false so the user is routed to setup to choose a unique name.
             return userDao.persist(incoming);
         }
-        // Only overwrite a field when the incoming value is present, so a null never wipes an existing value.
+        // Returning login: refresh email only. displayName and avatarUrl are user-owned once chosen —
+        // re-applying the Google values here would clobber a name the user deliberately set.
         if (Objects.nonNull(incoming.getEmail())) {
             existing.setEmail(incoming.getEmail());
-        }
-        if (Objects.nonNull(incoming.getDisplayName())) {
-            existing.setDisplayName(incoming.getDisplayName());
-        }
-        if (Objects.nonNull(incoming.getAvatarUrl())) {
-            existing.setAvatarUrl(incoming.getAvatarUrl());
         }
         return existing;
     }
 
     public List<User> searchByDisplayNamePrefix(String prefix, int limit) {
         return userDao.selectByDisplayNamePrefix(prefix, limit);
+    }
+
+    // True if another user (not excludeUserId) already has this exact display name. Comparison is
+    // case-SENSITIVE ("John" and "john" are distinct): the query narrows candidates case-insensitively
+    // (DB-collation agnostic), the exact match is enforced in Java so it holds regardless of collation.
+    public boolean isDisplayNameTaken(String displayName, Long excludeUserId) {
+        return userDao.selectByDisplayName(displayName).stream()
+                .filter(user -> displayName.equals(user.getDisplayName()))
+                .anyMatch(user -> !user.getId().equals(excludeUserId));
     }
 
     public User getCheckById(Long id) throws ApiException {
@@ -64,6 +70,8 @@ public class UserApi extends AbstractApi {
         User user = getCheckByGoogleId(googleId);
         user.setDisplayName(displayName);
         user.setAvatarUrl(avatarUrl);
+        // Saving a profile is an explicit name choice — mark it claimed so it's enforced as unique.
+        user.setDisplayNameSet(true);
         return user;
     }
 }

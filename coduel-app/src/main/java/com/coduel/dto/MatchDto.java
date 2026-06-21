@@ -34,14 +34,15 @@ public class MatchDto {
     public void forfeit(Long matchId, String googleId) throws ApiException {
         ForfeitResult result = matchFlow.forfeit(matchId, googleId);
         // Publish after the transactional finish — a WS event must not ride inside the DB transaction.
+        // Always mark the forfeiter on every scoreboard first. In a 2-player duel the forfeit is the
+        // terminal event, so without this the loser's row would never flip to "FORFEITED" — only the
+        // win banner would show.
+        matchEventPublisher.publish(matchId,
+                ConversionHelper.toPlayerForfeitEvent(result.getForfeiterUserId()));
         if (Objects.nonNull(result.getWinnerUserId())) {
             // The forfeit left one player standing — they win.
             matchEventPublisher.publish(matchId,
                     ConversionHelper.toMatchOverEvent(result.getWinnerUserId(), MatchEndReason.OPPONENT_FORFEIT));
-        } else {
-            // Match plays on — tell everyone who dropped out so the scoreboard updates.
-            matchEventPublisher.publish(matchId,
-                    ConversionHelper.toPlayerForfeitEvent(result.getForfeiterUserId()));
         }
     }
 }

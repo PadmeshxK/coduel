@@ -23,10 +23,11 @@ public class TestCase extends BaseEntity {
     @Column(nullable = false)
     private Long problemId;
 
-    @Column(columnDefinition = "TEXT")
+    // MEDIUMTEXT (16MB): competitive test data routinely exceeds TEXT's 64KB cap.
+    @Column(columnDefinition = "MEDIUMTEXT")
     private String input;
 
-    @Column(columnDefinition = "TEXT")
+    @Column(columnDefinition = "MEDIUMTEXT")
     private String expectedOutput;
 
     @Column(nullable = false)

@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/user")
@@ -37,9 +38,19 @@ public class UserController {
         return userDto.updateProfile(form, principal.getSubject());
     }
 
-    // Public directory: find people to add as friends, by display-name prefix.
+    // Public directory: find people to add as friends, by display-name prefix. Each hit carries the
+    // caller's relationship to it (friend / pending) so the UI shows the right action.
     @GetMapping("/search")
-    public List<FriendData> search(@RequestParam("q") String query) {
-        return userDto.search(query);
+    public List<FriendData> search(@RequestParam("q") String query,
+                                   @AuthenticationPrincipal OidcUser principal) throws ApiException {
+        return userDto.search(query, principal.getSubject());
+    }
+
+    // Live availability check for the name-setup / profile-edit UI.
+    @GetMapping("/display-name-available")
+    public Map<String, Boolean> displayNameAvailable(@RequestParam("name") String name,
+                                                     @AuthenticationPrincipal OidcUser principal)
+            throws ApiException {
+        return Map.of("available", userDto.isDisplayNameAvailable(name, principal.getSubject()));
     }
 }

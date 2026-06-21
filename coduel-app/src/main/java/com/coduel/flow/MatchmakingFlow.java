@@ -8,7 +8,6 @@ import com.coduel.common.exception.ApiException;
 import com.coduel.entity.Match;
 import com.coduel.entity.MatchParticipant;
 import com.coduel.entity.Problem;
-import com.coduel.interfaces.MatchmakingQueue;
 import com.coduel.model.constant.GameMode;
 import com.coduel.model.constant.MatchState;
 import com.coduel.model.constant.MatchmakingStatus;
@@ -22,6 +21,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Objects;
 
+/**
+ * DB-side of matchmaking only. The waiting pool is a Redis queue owned by {@link com.coduel.dto.MatchmakingDto}:
+ * it polls an opponent, calls {@link #pair}, and enqueues the caller when no duel was made.
+ */
 @Component
 @Log4j2
 @Transactional(rollbackFor = ApiException.class)
@@ -29,8 +32,6 @@ public class MatchmakingFlow {
 
     @Autowired
     private UserApi userApi;
-    @Autowired
-    private MatchmakingQueue matchmakingQueue;
     @Autowired
     private ProblemApi problemApi;
     @Autowired
@@ -42,43 +43,34 @@ public class MatchmakingFlow {
     @Autowired
     private MatchPresenceService matchPresenceService;
 
-    public MatchmakingResult join(String googleId) throws ApiException {
-        Long userId = userApi.getCheckByGoogleId(googleId).getId();
-
-        // Already in a duel (re-click, or paired while we were away) -> return it; never double-match.
-        Match existing = findActiveMatch(userId);
-        if (Objects.nonNull(existing)) {
-            return matched(existing);
-        }
-
-        Problem problem = problemApi.getCheckRandomProblem();
-        Long opponent = matchmakingQueue.poll();
-        // No one waiting, we polled ourselves, or the polled player is a stale ghost already in a
-        // match -> just wait.
-        if (Objects.isNull(opponent) || opponent.equals(userId) || Objects.nonNull(findActiveMatch(opponent))) {
-            matchmakingQueue.enqueue(userId);
-            log.info("Matchmaking: user {} waiting (polled opponent={})", userId, opponent);
-            return new MatchmakingResult(MatchmakingStatus.WAITING, null, null);
-        }
-
-        Match match = matchFlow.create(GameMode.DUEL, null, problem.getId(), List.of(opponent, userId));
-        // both players must actually show up within the start grace, else the no-show forfeits.
-        matchPresenceService.scheduleStartDeadline(match.getId());
-        log.info("Matchmaking: matched user {} vs {} -> match {}", opponent, userId, match.getId());
-        return new MatchmakingResult(MatchmakingStatus.MATCHED, match, problem.getSlug());
+    public Long userIdOf(String googleId) throws ApiException {
+        return userApi.getCheckByGoogleId(googleId).getId();
     }
 
+    // Where the caller stands: already in an active duel (MATCHED) or not yet (WAITING). Always
+    // carries the userId so the Dto can act on the queue without re-resolving it.
     public MatchmakingResult status(String googleId) throws ApiException {
         Long userId = userApi.getCheckByGoogleId(googleId).getId();
         Match existing = findActiveMatch(userId);
         return Objects.nonNull(existing)
-                ? matched(existing)
-                : new MatchmakingResult(MatchmakingStatus.WAITING, null, null);
+                ? matched(existing, userId)
+                : new MatchmakingResult(MatchmakingStatus.WAITING, null, null, userId);
     }
 
-    // Cancel: drop the user from the queue (e.g. they navigated away while searching). No-op if absent.
-    public void leave(String googleId) throws ApiException {
-        matchmakingQueue.remove(userApi.getCheckByGoogleId(googleId).getId());
+    // Pair the caller with the opponent the Dto polled off the queue. MATCHED = a duel was created;
+    // WAITING = no usable opponent (queue empty, polled self, or a ghost already in a match) -> the
+    // Dto should enqueue the caller. A rejected opponent is simply dropped, which is what we want.
+    public MatchmakingResult pair(Long userId, Long opponent) throws ApiException {
+        if (Objects.isNull(opponent) || opponent.equals(userId) || Objects.nonNull(findActiveMatch(opponent))) {
+            log.info("Matchmaking: user {} waiting (polled opponent={})", userId, opponent);
+            return new MatchmakingResult(MatchmakingStatus.WAITING, null, null, userId);
+        }
+        Problem problem = problemApi.getCheckRandomProblem();
+        Match match = matchFlow.create(GameMode.DUEL, null, problem.getId(), List.of(opponent, userId));
+        // both players must actually show up within the start grace, else the no-show forfeits.
+        matchPresenceService.scheduleStartDeadline(match.getId());
+        log.info("Matchmaking: matched user {} vs {} -> match {}", opponent, userId, match.getId());
+        return new MatchmakingResult(MatchmakingStatus.MATCHED, match, problem.getSlug(), userId);
     }
 
     private Match findActiveMatch(Long userId) throws ApiException {
@@ -91,8 +83,8 @@ public class MatchmakingFlow {
         return null;
     }
 
-    private MatchmakingResult matched(Match match) throws ApiException {
+    private MatchmakingResult matched(Match match, Long userId) throws ApiException {
         String slug = problemApi.getCheckById(match.getProblemId()).getSlug();
-        return new MatchmakingResult(MatchmakingStatus.MATCHED, match, slug);
+        return new MatchmakingResult(MatchmakingStatus.MATCHED, match, slug, userId);
     }
 }

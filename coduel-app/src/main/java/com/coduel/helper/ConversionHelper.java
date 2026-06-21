@@ -13,14 +13,10 @@ import com.coduel.entity.Leaderboard;
 import com.coduel.execution.model.constant.ExecutionVerdict;
 import com.coduel.execution.model.request.ExecRequest;
 import com.coduel.execution.model.response.ExecResponse;
-import com.coduel.model.constant.GameMode;
-import com.coduel.model.constant.MatchEndReason;
-import com.coduel.model.constant.MatchState;
-import com.coduel.model.constant.MatchEventType;
-import com.coduel.model.constant.MatchmakingStatus;
-import com.coduel.model.constant.Verdict;
+import com.coduel.model.constant.*;
+import com.coduel.model.data.ChallengeData;
 import com.coduel.model.data.ExecutionData;
-import com.coduel.model.constant.NotificationEventType;
+import com.coduel.model.data.FilterOptionsData;
 import com.coduel.model.data.FriendData;
 import com.coduel.model.data.FriendRequestData;
 import com.coduel.model.data.MatchData;
@@ -28,7 +24,6 @@ import com.coduel.model.data.NotificationData;
 import com.coduel.model.data.RoomData;
 import com.coduel.model.data.RoomParticipantData;
 import com.coduel.model.result.RoomDetailResult;
-import com.coduel.model.constant.RoomEventType;
 import com.coduel.model.data.RoomEventData;
 import com.coduel.model.data.MatchEventData;
 import com.coduel.model.data.MatchParticipantData;
@@ -42,6 +37,10 @@ import com.coduel.model.form.ExecutionForm;
 import com.coduel.model.form.ProblemForm;
 import com.coduel.model.form.SubmissionForm;
 import com.coduel.model.form.TestCaseForm;
+import com.coduel.model.result.ChallengeResult;
+import com.coduel.model.result.FilterOptionsResult;
+import com.coduel.model.result.FriendListResult;
+import com.coduel.model.result.FriendResult;
 import com.coduel.model.result.IncomingFriendRequestResult;
 import com.coduel.model.result.JudgingInputResult;
 import com.coduel.model.result.VisibleProblemResult;
@@ -123,7 +122,19 @@ public class ConversionHelper {
         problem.setTitle(form.getTitle());
         problem.setStatement(form.getStatement());
         problem.setTimeLimitMs(form.getTimeLimitMs());
+        problem.setRating(form.getRating());
+        if (form.getTags() != null) {
+            problem.setTags(form.getTags());
+        }
         return problem;
+    }
+
+    public static Friendship convert(Long requesterId, Long addresseeId) {
+        Friendship friendship = new Friendship();
+        friendship.setRequesterId(requesterId);
+        friendship.setAddresseeId(addresseeId);
+        friendship.setStatus(FriendshipStatus.PENDING);
+        return friendship;
     }
 
     public static TestCase convert(TestCaseForm form) {
@@ -138,6 +149,20 @@ public class ConversionHelper {
 
     public static List<TestCase> toTestCases(ProblemForm form) {
         return form.getTestCases().stream().map(ConversionHelper::convert).toList();
+    }
+
+    public static FilterOptionsResult toFilterOptionsResult(List<Integer> ratings, List<String> tags) {
+        FilterOptionsResult result = new FilterOptionsResult();
+        result.setRatings(ratings);
+        result.setTags(tags);
+        return result;
+    }
+
+    public static FilterOptionsData toFilterOptionsData(FilterOptionsResult result) {
+        FilterOptionsData data = new FilterOptionsData();
+        data.setRatings(result.getRatings());
+        data.setTags(result.getTags());
+        return data;
     }
 
     public static List<Problem> toProblems(List<ProblemForm> forms) {
@@ -167,8 +192,11 @@ public class ConversionHelper {
         data.setTitle(problem.getTitle());
         data.setStatement(problem.getStatement());
         data.setTimeLimitMs(problem.getTimeLimitMs());
+        data.setRating(problem.getRating());
+        data.setTags(problem.getTags());
         data.setTestCases(result.getVisibleTestCases().stream().map(ConversionHelper::convert).toList());
         data.setStatus(result.getStatus());
+        data.setSolved(result.isSolved());
         if (result.getSubmissions() != null) {
             data.setSubmissions(result.getSubmissions().stream().map(ConversionHelper::convert).toList());
         }
@@ -322,6 +350,7 @@ public class ConversionHelper {
         data.setEmail(user.getEmail());
         data.setDisplayName(user.getDisplayName());
         data.setAvatarUrl(user.getAvatarUrl());
+        data.setDisplayNameSet(user.isDisplayNameSet());
         return data;
     }
 
@@ -330,6 +359,28 @@ public class ConversionHelper {
         data.setUserId(user.getId());
         data.setDisplayName(user.getDisplayName());
         data.setAvatarUrl(user.getAvatarUrl());
+        return data;
+    }
+
+    // Search hit + relationship flags (friend / pending) for the directory action.
+    public static FriendData toFriendData(FriendResult result) {
+        FriendData data = toFriendData(result.getUser());
+        data.setFriend(result.isFriend());
+        data.setPending(result.isPending());
+        return data;
+    }
+
+    public static FriendListResult toFriendListResult(User friend, Long sinceMs) {
+        FriendListResult result = new FriendListResult();
+        result.setFriend(friend);
+        result.setSinceMs(sinceMs);
+        return result;
+    }
+
+    // Friend-list row: the friend's public view plus when the friendship began ("Friends for…").
+    public static FriendData toFriendData(FriendListResult result) {
+        FriendData data = toFriendData(result.getFriend());
+        data.setFriendsSinceMs(result.getSinceMs());
         return data;
     }
 
@@ -370,14 +421,25 @@ public class ConversionHelper {
         return data;
     }
 
+    // Lifetimes for the (single) NotificationStore — enforced logically on read, so they can differ.
+    private static final long ROOM_INVITE_TTL_MS = 60 * 60 * 1000L;   // 1h: a lobby stays open a while
+    private static final long DUEL_CHALLENGE_TTL_MS = 90 * 1000L;     // 90s: no answer == declined
+
+    // Store key for a room invite — shared by the builder and the remover so they never drift.
+    public static String roomNotificationId(Long roomId) {
+        return "room:" + roomId;
+    }
+
     public static NotificationData toRoomInviteNotification(Long roomId, User fromUser) {
         NotificationData data = new NotificationData();
         data.setType(NotificationEventType.ROOM_INVITE);
+        data.setId(roomNotificationId(roomId));
         data.setRoomId(roomId);
         data.setFromUserId(fromUser.getId());
         data.setFromDisplayName(fromUser.getDisplayName());
         data.setFromAvatarUrl(fromUser.getAvatarUrl());
         data.setCreatedAtMs(Instant.now().toEpochMilli());
+        data.setExpiresAtMs(Instant.now().toEpochMilli() + ROOM_INVITE_TTL_MS);
         return data;
     }
 
@@ -389,6 +451,89 @@ public class ConversionHelper {
         data.setFromDisplayName(requester.getDisplayName());
         data.setFromAvatarUrl(requester.getAvatarUrl());
         data.setCreatedAtMs(friendship.getCreatedAt() != null ? friendship.getCreatedAt().toEpochMilli() : null);
+        return data;
+    }
+
+    // Pushed to the requester when the addressee accepts — "from" is the acceptor. No requestId
+    // (it's not actionable), just a live "you're now friends" cue.
+    public static NotificationData toFriendAcceptedNotification(User acceptor) {
+        NotificationData data = new NotificationData();
+        data.setType(NotificationEventType.FRIEND_ACCEPTED);
+        data.setFromUserId(acceptor.getId());
+        data.setFromDisplayName(acceptor.getDisplayName());
+        data.setFromAvatarUrl(acceptor.getAvatarUrl());
+        data.setCreatedAtMs(Instant.now().toEpochMilli());
+        return data;
+    }
+
+    // Silent push to the requester when their request is declined — "from" is the decliner. The
+    // client uses it only to revert the "Requested" button to "Add"; it shows no toast.
+    public static NotificationData toFriendDeclinedNotification(User decliner) {
+        NotificationData data = new NotificationData();
+        data.setType(NotificationEventType.FRIEND_DECLINED);
+        data.setFromUserId(decliner.getId());
+        data.setFromDisplayName(decliner.getDisplayName());
+        data.setFromAvatarUrl(decliner.getAvatarUrl());
+        data.setCreatedAtMs(Instant.now().toEpochMilli());
+        return data;
+    }
+
+    // ---- duel challenges ----
+
+    // One carrier for every challenge action: opponent = the other party (target on create, accepter
+    // /decliner otherwise); challengeId set on create, matchId on accept.
+    public static ChallengeResult toChallengeResult(String challengeId, Long matchId,
+                                                    User challenger, User opponent) {
+        ChallengeResult result = new ChallengeResult();
+        result.setChallengeId(challengeId);
+        result.setMatchId(matchId);
+        result.setChallenger(challenger);
+        result.setOpponent(opponent);
+        return result;
+    }
+
+    public static ChallengeData toChallengeData(String challengeId, Long matchId, String opponentDisplayName) {
+        ChallengeData data = new ChallengeData();
+        data.setChallengeId(challengeId);
+        data.setMatchId(matchId);
+        data.setOpponentDisplayName(opponentDisplayName);
+        return data;
+    }
+
+    // Pushed to the target — actionable accept/decline, carries the challengeId.
+    public static NotificationData toDuelChallengeNotification(String challengeId, User challenger) {
+        NotificationData data = new NotificationData();
+        data.setType(NotificationEventType.DUEL_CHALLENGE);
+        data.setId(challengeId);
+        data.setChallengeId(challengeId);
+        data.setFromUserId(challenger.getId());
+        data.setFromDisplayName(challenger.getDisplayName());
+        data.setFromAvatarUrl(challenger.getAvatarUrl());
+        data.setCreatedAtMs(Instant.now().toEpochMilli());
+        data.setExpiresAtMs(Instant.now().toEpochMilli() + DUEL_CHALLENGE_TTL_MS);
+        return data;
+    }
+
+    // Pushed to BOTH players when a challenge is accepted — carries the matchId to jump into.
+    public static NotificationData toChallengeAcceptedNotification(Long matchId, User fromUser) {
+        NotificationData data = new NotificationData();
+        data.setType(NotificationEventType.CHALLENGE_ACCEPTED);
+        data.setMatchId(matchId);
+        data.setFromUserId(fromUser.getId());
+        data.setFromDisplayName(fromUser.getDisplayName());
+        data.setFromAvatarUrl(fromUser.getAvatarUrl());
+        data.setCreatedAtMs(Instant.now().toEpochMilli());
+        return data;
+    }
+
+    // Pushed to the challenger when their challenge is declined.
+    public static NotificationData toChallengeDeclinedNotification(User fromUser) {
+        NotificationData data = new NotificationData();
+        data.setType(NotificationEventType.CHALLENGE_DECLINED);
+        data.setFromUserId(fromUser.getId());
+        data.setFromDisplayName(fromUser.getDisplayName());
+        data.setFromAvatarUrl(fromUser.getAvatarUrl());
+        data.setCreatedAtMs(Instant.now().toEpochMilli());
         return data;
     }
 

@@ -18,6 +18,9 @@ public class FriendshipDao extends BaseDao<Friendship> {
                     + "AND (f.requesterId = :userId OR f.addresseeId = :userId) ORDER BY f.updatedAt DESC";
     private static final String SELECT_INCOMING =
             "SELECT f FROM Friendship f WHERE f.status = :pending AND f.addresseeId = :userId ORDER BY f.createdAt DESC";
+    // Pending requests I've sent — used to show "Requested" (not "Add") for those users in search.
+    private static final String SELECT_OUTGOING =
+            "SELECT f FROM Friendship f WHERE f.status = :pending AND f.requesterId = :userId";
 
     public FriendshipDao() {
         super(Friendship.class);
@@ -38,6 +41,13 @@ public class FriendshipDao extends BaseDao<Friendship> {
 
     public List<Friendship> selectIncoming(Long userId) {
         return createQuery(SELECT_INCOMING, Friendship.class)
+                .setParameter("pending", FriendshipStatus.PENDING)
+                .setParameter("userId", userId)
+                .getResultList();
+    }
+
+    public List<Friendship> selectOutgoing(Long userId) {
+        return createQuery(SELECT_OUTGOING, Friendship.class)
                 .setParameter("pending", FriendshipStatus.PENDING)
                 .setParameter("userId", userId)
                 .getResultList();

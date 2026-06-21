@@ -20,6 +20,7 @@ public enum Errors {
     // ===== user =====
     ERR_108("No user found with id {}"),
     ERR_109("No user found for the authenticated account"),
+    ERR_126("That display name is already taken — please pick another"),
 
     // ===== match =====
     ERR_110("No match found with id {}"),
@@ -31,6 +32,8 @@ public enum Errors {
 
     // ===== friends =====
     ERR_113("No friend request found with id {}"),
+    ERR_130("Acceptor userId doesn't match Addressee userId for requestId {}"),
+    ERR_131("Friend requestId {} is not pending"),
     ERR_114("You can't send a friend request to yourself"),
     ERR_115("A friend request or friendship already exists with user {}"),
 
@@ -43,7 +46,12 @@ public enum Errors {
     ERR_121("You are not a member of room {}"),
     ERR_122("Everyone must be ready before the match can start"),
     ERR_123("A match is already in progress in this room"),
-    ERR_124("A player is already in another match — they must finish it first");
+    ERR_124("A player is already in another match — they must finish it first"),
+
+    // ===== duel challenges =====
+    ERR_127("You can only challenge your friends"),
+    ERR_128("This challenge no longer exists — it may have expired"),
+    ERR_129("You can't challenge yourself");
 
     private final String message;
 

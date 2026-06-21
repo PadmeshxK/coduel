@@ -65,3 +65,8 @@ docs/
 .env
 .env.*
 *.local
+
+# ---- Local-only seeding scripts (contain a hardcoded HF token — never commit) ----
+scripts/seed_problems.py
+scripts/.venv/
+scripts/__pycache__/

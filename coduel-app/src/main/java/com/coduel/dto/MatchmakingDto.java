@@ -3,6 +3,8 @@ package com.coduel.dto;
 import com.coduel.common.exception.ApiException;
 import com.coduel.flow.MatchmakingFlow;
 import com.coduel.helper.ConversionHelper;
+import com.coduel.interfaces.MatchmakingQueue;
+import com.coduel.model.constant.MatchmakingStatus;
 import com.coduel.model.data.MatchmakingData;
 import com.coduel.model.result.MatchmakingResult;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,17 +15,32 @@ public class MatchmakingDto {
 
     @Autowired
     private MatchmakingFlow matchmakingFlow;
+    @Autowired
+    private MatchmakingQueue matchmakingQueue;
 
     public MatchmakingData join(String googleId) throws ApiException {
-        return toData(matchmakingFlow.join(googleId));
+        // Already in a duel (re-click, or paired while away)? Return it — never poll, or we'd consume
+        // a waiting opponent for nothing.
+        MatchmakingResult mine = matchmakingFlow.status(googleId);
+        if (mine.getStatus() == MatchmakingStatus.MATCHED) {
+            return toData(mine);
+        }
+        // Try to pair with whoever's waiting; if there's no usable opponent, take a spot in the queue.
+        Long opponent = matchmakingQueue.poll();
+        MatchmakingResult result = matchmakingFlow.pair(mine.getUserId(), opponent);
+        if (result.getStatus() == MatchmakingStatus.WAITING) {
+            matchmakingQueue.enqueue(mine.getUserId());
+        }
+        return toData(result);
     }
 
     public MatchmakingData status(String googleId) throws ApiException {
         return toData(matchmakingFlow.status(googleId));
     }
 
+    // Cancel: drop the user from the queue (e.g. they navigated away while searching). No-op if absent.
     public void leave(String googleId) throws ApiException {
-        matchmakingFlow.leave(googleId);
+        matchmakingQueue.remove(matchmakingFlow.userIdOf(googleId));
     }
 
     private static MatchmakingData toData(MatchmakingResult result) {

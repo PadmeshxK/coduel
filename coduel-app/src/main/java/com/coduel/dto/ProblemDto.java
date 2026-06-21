@@ -7,7 +7,9 @@ import com.coduel.entity.Problem;
 import com.coduel.entity.TestCase;
 import com.coduel.flow.ProblemFlow;
 import com.coduel.helper.ConversionHelper;
+import com.coduel.model.data.FilterOptionsData;
 import com.coduel.model.data.ProblemData;
+import com.coduel.model.form.ProblemFilterForm;
 import com.coduel.model.form.ProblemForm;
 import com.coduel.model.result.VisibleProblemResult;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,9 +44,24 @@ public class ProblemDto extends AbstractDto {
         return ConversionHelper.convert(problemFlow.getWithVisibleTestCases(slug, googleId));
     }
 
-    public PageData<ProblemData> getPage(int page, int size, String googleId) throws ApiException {
-        PageData<VisibleProblemResult> result = problemFlow.getPage(page, size, googleId);
+    public PageData<ProblemData> getPage(ProblemFilterForm filter, int page, int size, String googleId)
+            throws ApiException {
+        if (filter.getSort() == null || filter.getSort().isBlank()) {
+            filter.setSort("rating-asc"); // default ordering: easiest first (matches the UI default)
+        }
+        PageData<VisibleProblemResult> result = problemFlow.getPage(filter, page, size, googleId);
         List<ProblemData> content = result.getContent().stream().map(ConversionHelper::convert).toList();
         return ConversionHelper.toPage(content, result.getPage(), result.getSize(), result.getTotalElements());
+    }
+
+    public List<String> getFilteredSlugs(ProblemFilterForm filter, String googleId) throws ApiException {
+        if (filter.getSort() == null || filter.getSort().isBlank()) {
+            filter.setSort("rating-asc"); // keep "next" order consistent with the list default
+        }
+        return problemFlow.getFilteredSlugs(filter, googleId);
+    }
+
+    public FilterOptionsData getFilterOptions() {
+        return ConversionHelper.toFilterOptionsData(problemFlow.getFilterOptions());
     }
 }

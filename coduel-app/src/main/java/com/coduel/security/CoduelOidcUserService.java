@@ -23,10 +23,13 @@ public class CoduelOidcUserService extends OidcUserService {
     public OidcUser loadUser(OidcUserRequest userRequest) {
         OidcUser oidcUser = super.loadUser(userRequest);
 
+        // Note: we deliberately do NOT carry over the Google name as a display name. A new account
+        // gets a null displayName + displayNameSet=false and is routed to /setup to choose a unique
+        // one — so a provisional name never lands in the table (where it could collide or surface in
+        // search/leaderboard). The avatar is fine to seed from Google.
         User incoming = new User();
         incoming.setGoogleId(oidcUser.getSubject());
         incoming.setEmail(oidcUser.getEmail());
-        incoming.setDisplayName(oidcUser.getFullName());
         incoming.setAvatarUrl(oidcUser.getPicture());
         userApi.upsert(incoming);
 
