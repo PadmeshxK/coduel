@@ -8,6 +8,10 @@ import lombok.Setter;
 @Setter
 public class ExecutionData {
 
+    // Correlates an async run result to the run the client is waiting on (set when pushed over
+    // /user/queue/run-result; null otherwise).
+    private String runId;
+
     private Verdict verdict;
     private Integer passedTests;
     private int totalTests;

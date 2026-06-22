@@ -15,5 +15,7 @@ public enum NotificationEventType {
     // A challenge was accepted — carries matchId; both players navigate into the duel.
     CHALLENGE_ACCEPTED,
     // A challenge you sent was declined — a quiet "they passed" cue.
-    CHALLENGE_DECLINED
+    CHALLENGE_DECLINED,
+    // Ranked matchmaking paired you — carries matchId; both players navigate into the duel (no polling).
+    MATCHMAKING_FOUND
 }

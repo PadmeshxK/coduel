@@ -1,6 +1,7 @@
 package com.coduel.dto;
 
 import com.coduel.api.SubmissionApi;
+import com.coduel.api.UserApi;
 import com.coduel.common.exception.ApiException;
 import com.coduel.config.AppProperties;
 import com.coduel.entity.Problem;
@@ -13,8 +14,10 @@ import com.coduel.flow.MatchFlow;
 import com.coduel.flow.SubmissionFlow;
 import com.coduel.helper.ConversionHelper;
 import com.coduel.interfaces.MatchEventPublisher;
+import com.coduel.interfaces.SubmissionResultPublisher;
 import com.coduel.model.constant.MatchEndReason;
 import com.coduel.model.constant.Verdict;
+import com.coduel.model.data.SubmissionData;
 import com.coduel.model.result.JudgingInputResult;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -46,6 +49,10 @@ public class JudgeDto {
     @Autowired
     private CodeExecutor codeExecutor;
     @Autowired
+    private UserApi userApi;
+    @Autowired
+    private SubmissionResultPublisher submissionResultPublisher;
+    @Autowired
     private AppProperties properties;
 
     public void judge(Long submissionId) throws ApiException {
@@ -75,7 +82,20 @@ public class JudgeDto {
 
         if (Objects.nonNull(submission.getMatchId())) {
             broadcastToMatch(submission, verdict, passedTests, totalTests);
+        } else {
+            // Solo (practice): push the result straight to the submitter — no client polling.
+            submission.setVerdict(verdict);
+            submission.setRuntimeMs(result.getDurationMs());
+            submission.setPassedTests(passedTests);
+            submission.setTotalTests(totalTests);
+            publishSoloResult(submission);
         }
+    }
+
+    // Push a judged solo submission to its submitter's /user/queue/submission-result.
+    private void publishSoloResult(Submission submission) throws ApiException {
+        String googleId = userApi.getCheckById(submission.getUserId()).getGoogleId();
+        submissionResultPublisher.publish(googleId, ConversionHelper.convert(submission));
     }
 
     // Live duel: push this submission's verdict to both players, and if it just won the match,
@@ -105,6 +125,9 @@ public class JudgeDto {
         if (Objects.nonNull(matchId)) {
             matchEventPublisher.publish(matchId,
                     ConversionHelper.toSubmissionJudgedEvent(submission, Verdict.INTERNAL_ERROR, 0, 0));
+        } else {
+            // Solo: the submission is already INTERNAL_ERROR — push it so the page stops waiting.
+            publishSoloResult(submission);
         }
     }
 

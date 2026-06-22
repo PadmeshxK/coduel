@@ -54,7 +54,7 @@ public class MatchmakingFlow {
         Match existing = findActiveMatch(userId);
         return Objects.nonNull(existing)
                 ? matched(existing, userId)
-                : new MatchmakingResult(MatchmakingStatus.WAITING, null, null, userId);
+                : new MatchmakingResult(MatchmakingStatus.WAITING, null, null, userId, null);
     }
 
     // Pair the caller with the opponent the Dto polled off the queue. MATCHED = a duel was created;
@@ -63,14 +63,16 @@ public class MatchmakingFlow {
     public MatchmakingResult pair(Long userId, Long opponent) throws ApiException {
         if (Objects.isNull(opponent) || opponent.equals(userId) || Objects.nonNull(findActiveMatch(opponent))) {
             log.info("Matchmaking: user {} waiting (polled opponent={})", userId, opponent);
-            return new MatchmakingResult(MatchmakingStatus.WAITING, null, null, userId);
+            return new MatchmakingResult(MatchmakingStatus.WAITING, null, null, userId, null);
         }
         Problem problem = problemApi.getCheckRandomProblem();
         Match match = matchFlow.create(GameMode.DUEL, null, problem.getId(), List.of(opponent, userId));
         // both players must actually show up within the start grace, else the no-show forfeits.
         matchPresenceService.scheduleStartDeadline(match.getId());
+        // The waiting opponent isn't polling — resolve their googleId so the Dto can push them the match.
+        String opponentGoogleId = userApi.getCheckById(opponent).getGoogleId();
         log.info("Matchmaking: matched user {} vs {} -> match {}", opponent, userId, match.getId());
-        return new MatchmakingResult(MatchmakingStatus.MATCHED, match, problem.getSlug(), userId);
+        return new MatchmakingResult(MatchmakingStatus.MATCHED, match, problem.getSlug(), userId, opponentGoogleId);
     }
 
     private Match findActiveMatch(Long userId) throws ApiException {
@@ -85,6 +87,6 @@ public class MatchmakingFlow {
 
     private MatchmakingResult matched(Match match, Long userId) throws ApiException {
         String slug = problemApi.getCheckById(match.getProblemId()).getSlug();
-        return new MatchmakingResult(MatchmakingStatus.MATCHED, match, slug, userId);
+        return new MatchmakingResult(MatchmakingStatus.MATCHED, match, slug, userId, null);
     }
 }

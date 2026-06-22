@@ -21,6 +21,8 @@ import com.coduel.model.data.FriendData;
 import com.coduel.model.data.FriendRequestData;
 import com.coduel.model.data.MatchData;
 import com.coduel.model.data.NotificationData;
+import com.coduel.model.data.RunAcceptedData;
+import com.coduel.model.message.RunTask;
 import com.coduel.model.data.RoomData;
 import com.coduel.model.data.RoomParticipantData;
 import com.coduel.model.result.RoomDetailResult;
@@ -113,6 +115,43 @@ public class ConversionHelper {
         data.setFailedInput(response.getFailedInput());
         data.setExpectedOutput(response.getExpectedOutput());
         data.setCompilerLogs(response.getCompilerLogs());
+        return data;
+    }
+
+    // ---- async runs ----
+
+    public static RunTask toRunTask(String runId, String googleId, ExecutionForm form, long timeoutMs) {
+        RunTask task = new RunTask();
+        task.setRunId(runId);
+        task.setGoogleId(googleId);
+        task.setLanguage(form.getLanguage());
+        task.setCode(form.getCode());
+        task.setTestCases(form.getTestCases());
+        task.setTimeoutMs(timeoutMs);
+        return task;
+    }
+
+    public static ExecRequest toExecRequest(RunTask task) {
+        ExecRequest request = new ExecRequest();
+        request.setLanguage(task.getLanguage());
+        request.setCode(task.getCode());
+        request.setTestCases(task.getTestCases().stream().map(ConversionHelper::toExecTestCase).toList());
+        request.setTimeout(Duration.ofMillis(task.getTimeoutMs()));
+        return request;
+    }
+
+    public static RunAcceptedData toRunAcceptedData(String runId) {
+        RunAcceptedData data = new RunAcceptedData();
+        data.setRunId(runId);
+        return data;
+    }
+
+    // A run that blew up in the worker — surfaced as a result (not an HTTP error) so the editor unblocks.
+    public static ExecutionData toFailedRunResult(int totalTests) {
+        ExecutionData data = new ExecutionData();
+        data.setVerdict(Verdict.INTERNAL_ERROR);
+        data.setPassedTests(0);
+        data.setTotalTests(totalTests);
         return data;
     }
 
@@ -522,6 +561,15 @@ public class ConversionHelper {
         data.setFromUserId(fromUser.getId());
         data.setFromDisplayName(fromUser.getDisplayName());
         data.setFromAvatarUrl(fromUser.getAvatarUrl());
+        data.setCreatedAtMs(Instant.now().toEpochMilli());
+        return data;
+    }
+
+    // Pushed to both players when ranked matchmaking pairs them — carries the matchId to jump into.
+    public static NotificationData toMatchmakingFoundNotification(Long matchId) {
+        NotificationData data = new NotificationData();
+        data.setType(NotificationEventType.MATCHMAKING_FOUND);
+        data.setMatchId(matchId);
         data.setCreatedAtMs(Instant.now().toEpochMilli());
         return data;
     }

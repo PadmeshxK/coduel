@@ -4,8 +4,10 @@ import com.coduel.common.exception.ApiException;
 import com.coduel.flow.MatchmakingFlow;
 import com.coduel.helper.ConversionHelper;
 import com.coduel.interfaces.MatchmakingQueue;
+import com.coduel.interfaces.UserNotificationPublisher;
 import com.coduel.model.constant.MatchmakingStatus;
 import com.coduel.model.data.MatchmakingData;
+import com.coduel.model.data.NotificationData;
 import com.coduel.model.result.MatchmakingResult;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -17,6 +19,8 @@ public class MatchmakingDto {
     private MatchmakingFlow matchmakingFlow;
     @Autowired
     private MatchmakingQueue matchmakingQueue;
+    @Autowired
+    private UserNotificationPublisher userNotificationPublisher;
 
     public MatchmakingData join(String googleId) throws ApiException {
         // Already in a duel (re-click, or paired while away)? Return it — never poll, or we'd consume
@@ -30,6 +34,12 @@ public class MatchmakingDto {
         MatchmakingResult result = matchmakingFlow.pair(mine.getUserId(), opponent);
         if (result.getStatus() == MatchmakingStatus.WAITING) {
             matchmakingQueue.enqueue(mine.getUserId());
+        } else {
+            // Paired — push "match found" to BOTH players so they jump into the duel without polling.
+            // (The caller also gets it from this HTTP response; the opponent was only waiting.)
+            NotificationData found = ConversionHelper.toMatchmakingFoundNotification(result.getMatch().getId());
+            userNotificationPublisher.publish(googleId, found);
+            userNotificationPublisher.publish(result.getOpponentGoogleId(), found);
         }
         return toData(result);
     }
