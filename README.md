@@ -4,7 +4,6 @@ A real-time **1v1 competitive-coding platform** built around an **asynchronous, 
 
 **▶ Live demo: https://coduel-ui.vercel.app** &nbsp;·&nbsp; Frontend repo: [coduel-ui](https://github.com/PadmeshxK/coduel-ui)
 
-> The recruiter headline is the backend: a sandboxed execution engine + an async judging pipeline. The duel is the fun demo on top.
 
 ---
 
