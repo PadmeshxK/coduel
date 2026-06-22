@@ -51,7 +51,13 @@ public enum Errors {
     // ===== duel challenges =====
     ERR_127("You can only challenge your friends"),
     ERR_128("This challenge no longer exists — it may have expired"),
-    ERR_129("You can't challenge yourself");
+    ERR_129("You can't challenge yourself"),
+
+    // ===== chat / direct messages =====
+    ERR_132("No conversation found with id {}"),
+    ERR_133("You are not a participant of conversation {}"),
+    ERR_134("You can only message your friends"),
+    ERR_135("You can't message yourself");
 
     private final String message;
 

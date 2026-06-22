@@ -5,13 +5,18 @@ import com.coduel.entity.Room;
 import com.coduel.flow.RoomFlow;
 import com.coduel.helper.ConversionHelper;
 import com.coduel.interfaces.NotificationInbox;
+import com.coduel.interfaces.RoomChatBuffer;
+import com.coduel.interfaces.RoomChatPublisher;
 import com.coduel.interfaces.RoomEventPublisher;
 import com.coduel.interfaces.UserNotificationPublisher;
 import com.coduel.model.data.NotificationData;
+import com.coduel.model.data.RoomChatData;
 import com.coduel.model.data.RoomData;
 import com.coduel.model.result.InviteResult;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+
+import java.util.List;
 
 @Component
 public class RoomDto {
@@ -24,6 +29,10 @@ public class RoomDto {
     private UserNotificationPublisher userNotificationPublisher;
     @Autowired
     private NotificationInbox notificationInbox;
+    @Autowired
+    private RoomChatBuffer roomChatBuffer;
+    @Autowired
+    private RoomChatPublisher roomChatPublisher;
 
     public RoomData create(String googleId) throws ApiException {
         Room room = roomFlow.create(googleId);
@@ -68,5 +77,18 @@ public class RoomDto {
         boolean closed = roomFlow.leave(roomId, googleId);
         roomEventPublisher.publish(roomId,
                 closed ? ConversionHelper.toRoomClosed() : ConversionHelper.toRoomRosterChanged());
+    }
+
+    // Lobby chat: the flow builds + gates the message (members only), then we record it in the ring
+    // buffer and broadcast it to the room's chat topic. Ephemeral — never touches the DB.
+    public void postChat(String googleId, Long roomId, String body) throws ApiException {
+        RoomChatData message = roomFlow.composeChat(googleId, roomId, body);
+        roomChatBuffer.append(roomId, message);
+        roomChatPublisher.publish(roomId, message);
+    }
+
+    public List<RoomChatData> getChat(String googleId, Long roomId) throws ApiException {
+        roomFlow.requireMembership(googleId, roomId);
+        return roomChatBuffer.getRecent(roomId);
     }
 }

@@ -2,7 +2,10 @@ package com.coduel.controller;
 
 import com.coduel.common.exception.ApiException;
 import com.coduel.dto.RoomDto;
+import com.coduel.model.data.RoomChatData;
 import com.coduel.model.data.RoomData;
+
+import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
@@ -61,6 +64,13 @@ public class RoomController {
                           @RequestParam("ready") boolean ready,
                           @AuthenticationPrincipal OidcUser principal) throws ApiException {
         return roomDto.setReady(principal.getSubject(), id, ready);
+    }
+
+    // Hydrate the lobby chat (recent messages, oldest-first) — members only.
+    @GetMapping("/{id}/chat")
+    public List<RoomChatData> chat(@PathVariable("id") Long id,
+                                   @AuthenticationPrincipal OidcUser principal) throws ApiException {
+        return roomDto.getChat(principal.getSubject(), id);
     }
 
     // Leave the room. The host leaving as the last member closes it.

@@ -14,7 +14,9 @@ import com.coduel.entity.Problem;
 import com.coduel.entity.Room;
 import com.coduel.entity.RoomMember;
 import com.coduel.entity.User;
+import com.coduel.helper.ConversionHelper;
 import com.coduel.model.constant.Errors;
+import com.coduel.model.data.RoomChatData;
 import com.coduel.model.constant.GameMode;
 import com.coduel.model.constant.MatchState;
 import com.coduel.model.constant.RoomState;
@@ -173,6 +175,24 @@ public class RoomFlow {
         }
         roomMemberApi.delete(mine);
         return false;
+    }
+
+    // Build an ephemeral lobby-chat message from a member (membership-gated, body capped). Not
+    // persisted — the Dto pushes it to the Redis ring buffer and broadcasts it.
+    public RoomChatData composeChat(String googleId, Long roomId, String body) throws ApiException {
+        User sender = userApi.getCheckByGoogleId(googleId);
+        requireMember(roomMemberApi.getByRoomId(roomId), sender.getId(), roomId);
+        String trimmed = body.strip();
+        if (trimmed.length() > 1000) {
+            trimmed = trimmed.substring(0, 1000);
+        }
+        return ConversionHelper.toRoomChatData(sender, trimmed);
+    }
+
+    // Membership gate for reading the lobby chat history.
+    public void requireMembership(String googleId, Long roomId) throws ApiException {
+        Long userId = userApi.getCheckByGoogleId(googleId).getId();
+        requireMember(roomMemberApi.getByRoomId(roomId), userId, roomId);
     }
 
     private RoomMember member(Long roomId, Long userId) {

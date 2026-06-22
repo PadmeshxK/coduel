@@ -76,9 +76,14 @@ public class MatchSubscriptionInterceptor implements ChannelInterceptor {
         return userApi.getCheckByGoogleId(principal.getName()).getId();
     }
 
+    // The id is the first path segment after the prefix — tolerates sub-topics like
+    // /topic/room/{id}/chat (gated on the same room membership as /topic/room/{id}).
     private long parseId(String destination, String prefix) {
+        String rest = destination.substring(prefix.length());
+        int slash = rest.indexOf('/');
+        String id = slash >= 0 ? rest.substring(0, slash) : rest;
         try {
-            return Long.parseLong(destination.substring(prefix.length()));
+            return Long.parseLong(id);
         } catch (NumberFormatException e) {
             throw new MessagingException("Invalid topic: " + destination);
         }

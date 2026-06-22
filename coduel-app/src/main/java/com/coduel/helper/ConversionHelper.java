@@ -10,17 +10,24 @@ import com.coduel.entity.TestCase;
 import com.coduel.entity.RoomMember;
 import com.coduel.entity.User;
 import com.coduel.entity.Leaderboard;
+import com.coduel.entity.Conversation;
+import com.coduel.entity.Message;
 import com.coduel.execution.model.constant.ExecutionVerdict;
 import com.coduel.execution.model.request.ExecRequest;
 import com.coduel.execution.model.response.ExecResponse;
 import com.coduel.model.constant.*;
 import com.coduel.model.data.ChallengeData;
+import com.coduel.model.data.ConversationData;
+import com.coduel.model.data.MessageData;
 import com.coduel.model.data.ExecutionData;
 import com.coduel.model.data.FilterOptionsData;
 import com.coduel.model.data.FriendData;
 import com.coduel.model.data.FriendRequestData;
 import com.coduel.model.data.MatchData;
 import com.coduel.model.data.NotificationData;
+import com.coduel.model.data.PresenceData;
+import com.coduel.model.data.RoomChatData;
+import com.coduel.model.data.TypingData;
 import com.coduel.model.data.RunAcceptedData;
 import com.coduel.model.message.RunTask;
 import com.coduel.model.data.RoomData;
@@ -40,6 +47,8 @@ import com.coduel.model.form.ProblemForm;
 import com.coduel.model.form.SubmissionForm;
 import com.coduel.model.form.TestCaseForm;
 import com.coduel.model.result.ChallengeResult;
+import com.coduel.model.result.ConversationView;
+import com.coduel.model.result.DmSentResult;
 import com.coduel.model.result.FilterOptionsResult;
 import com.coduel.model.result.FriendListResult;
 import com.coduel.model.result.FriendResult;
@@ -153,6 +162,98 @@ public class ConversionHelper {
         data.setPassedTests(0);
         data.setTotalTests(totalTests);
         return data;
+    }
+
+    // ---- chat / direct messages ----
+
+    public static Message toMessage(Long conversationId, Long senderId, String body) {
+        Message message = new Message();
+        message.setConversationId(conversationId);
+        message.setSenderId(senderId);
+        message.setBody(body);
+        return message;
+    }
+
+    public static Conversation toConversation(Long lowerUserId, Long higherUserId) {
+        Conversation conversation = new Conversation();
+        conversation.setLowerUserId(lowerUserId);
+        conversation.setHigherUserId(higherUserId);
+        return conversation;
+    }
+
+    public static MessageData toMessageData(Message message) {
+        MessageData data = new MessageData();
+        data.setMessageId(message.getId());
+        data.setConversationId(message.getConversationId());
+        data.setSenderId(message.getSenderId());
+        data.setBody(message.getBody());
+        data.setCreatedAtMs(message.getCreatedAt() != null ? message.getCreatedAt().toEpochMilli() : null);
+        return data;
+    }
+
+    public static ConversationData toConversationData(Conversation conversation, User other, boolean unread) {
+        ConversationData data = new ConversationData();
+        data.setConversationId(conversation.getId());
+        data.setOtherUserId(other.getId());
+        data.setOtherDisplayName(other.getDisplayName());
+        data.setOtherAvatarUrl(other.getAvatarUrl());
+        data.setLastPreview(conversation.getLastPreview());
+        data.setLastMessageAtMs(conversation.getLastMessageAt() != null
+                ? conversation.getLastMessageAt().toEpochMilli() : null);
+        data.setLastSenderId(conversation.getLastSenderId());
+        data.setUnread(unread);
+        return data;
+    }
+
+    public static DmSentResult toDmSentResult(Message message, String recipientGoogleId, User sender) {
+        DmSentResult result = new DmSentResult();
+        result.setMessage(message);
+        result.setRecipientGoogleId(recipientGoogleId);
+        result.setSender(sender);
+        return result;
+    }
+
+    public static PresenceData toPresenceData(Long userId, boolean online) {
+        PresenceData data = new PresenceData();
+        data.setUserId(userId);
+        data.setOnline(online);
+        return data;
+    }
+
+    public static TypingData toTypingData(Long fromUserId) {
+        TypingData data = new TypingData();
+        data.setFromUserId(fromUserId);
+        return data;
+    }
+
+    public static RoomChatData toRoomChatData(User sender, String body) {
+        RoomChatData data = new RoomChatData();
+        data.setSenderId(sender.getId());
+        data.setSenderName(sender.getDisplayName());
+        data.setSenderAvatarUrl(sender.getAvatarUrl());
+        data.setBody(body);
+        data.setCreatedAtMs(Instant.now().toEpochMilli());
+        return data;
+    }
+
+    // Pushed to the recipient's notification queue when a DM arrives — a toast cue ("from" = the sender),
+    // clicked to open the thread. Not an actionable bell item; the conversation lives on the Messages page.
+    public static NotificationData toDmNotification(User sender) {
+        NotificationData data = new NotificationData();
+        data.setType(NotificationEventType.DM_RECEIVED);
+        data.setFromUserId(sender.getId());
+        data.setFromDisplayName(sender.getDisplayName());
+        data.setFromAvatarUrl(sender.getAvatarUrl());
+        data.setCreatedAtMs(Instant.now().toEpochMilli());
+        return data;
+    }
+
+    public static ConversationView toConversationView(Conversation conversation, User other, boolean unread) {
+        ConversationView view = new ConversationView();
+        view.setConversation(conversation);
+        view.setOther(other);
+        view.setUnread(unread);
+        return view;
     }
 
     public static Problem convert(ProblemForm form) {

@@ -61,6 +61,11 @@ public class LobbyPresenceService {
         if (destination == null || !destination.startsWith(ROOM_TOPIC_PREFIX)) {
             return;
         }
+        // Only the bare room topic is the lobby-presence signal — ignore sub-topics like .../chat
+        // (presence is tracked on /topic/room/{id}; a sub-topic id parse would otherwise just fail).
+        if (destination.indexOf('/', ROOM_TOPIC_PREFIX.length()) >= 0) {
+            return;
+        }
         Principal principal = accessor.getUser();
         if (principal == null) {
             return;
