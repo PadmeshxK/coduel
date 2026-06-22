@@ -6,6 +6,7 @@ import com.coduel.common.exception.ApiException;
 import com.coduel.dao.ProblemDao;
 import com.coduel.entity.Problem;
 import com.coduel.model.constant.Errors;
+import com.coduel.model.form.ProblemFilterForm;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,15 +30,29 @@ public class ProblemApi extends AbstractApi {
         return problemDao.persist(problem);
     }
 
-    public List<Problem> getPage(int page, int size) throws ApiException {
-        if(size < 1 || size > MAX_PAGE_SIZE){
+    // Combinable filters (search / ratings / tags / status) + sort + pagination. userId (nullable)
+    // backs the solved/unsolved bits; it comes from the session, never the filter form.
+    public List<Problem> getPage(ProblemFilterForm filter, Long userId, int page, int size) throws ApiException {
+        if (size < 1 || size > MAX_PAGE_SIZE) {
             throw new ApiException(ApiStatus.BAD_DATA, Errors.ERR_105, List.of(MAX_PAGE_SIZE, size));
         }
-        return problemDao.selectPage(page, size);
+        return problemDao.selectPageFiltered(filter, userId, page, size);
     }
 
-    public long count() {
-        return problemDao.count();
+    public long count(ProblemFilterForm filter, Long userId) {
+        return problemDao.countFiltered(filter, userId);
+    }
+
+    public List<String> getFilteredSlugs(ProblemFilterForm filter, Long userId) {
+        return problemDao.selectFilteredSlugs(filter, userId);
+    }
+
+    public List<Integer> getDistinctRatings() {
+        return problemDao.selectDistinctRatings();
+    }
+
+    public List<String> getDistinctTags() {
+        return problemDao.selectDistinctTags();
     }
 
     public Problem getCheckById(Long id) throws ApiException {

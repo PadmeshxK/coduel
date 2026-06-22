@@ -7,9 +7,11 @@ import com.coduel.entity.Problem;
 import com.coduel.entity.TestCase;
 import com.coduel.flow.ProblemFlow;
 import com.coduel.helper.ConversionHelper;
+import com.coduel.model.data.FilterOptionsData;
 import com.coduel.model.data.ProblemData;
+import com.coduel.model.form.ProblemFilterForm;
 import com.coduel.model.form.ProblemForm;
-import com.coduel.model.result.ProblemWithVisibleTestCases;
+import com.coduel.model.result.VisibleProblemResult;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -25,17 +27,41 @@ public class ProblemDto extends AbstractDto {
         checkValid(form);
         trim(form);
         Problem problem = ConversionHelper.convert(form);
-        List<TestCase> testCases = form.getTestCases().stream().map(ConversionHelper::convert).toList();
+        List<TestCase> testCases = ConversionHelper.toTestCases(form);
         return ConversionHelper.convert(problemFlow.create(problem, testCases));
     }
 
-    public ProblemData getBySlug(String slug) throws ApiException {
-        return ConversionHelper.convert(problemFlow.getWithVisibleTestCases(slug));
+    // Validate + convert the whole batch up front, then persist it in one transaction (the Flow).
+    public List<ProblemData> createBatch(List<ProblemForm> forms) throws ApiException {
+        checkValid(forms);
+        trim(forms);
+        List<Problem> problems = ConversionHelper.toProblems(forms);
+        List<List<TestCase>> testCasesPerProblem = ConversionHelper.toTestCaseGroups(forms);
+        return ConversionHelper.toProblemDataList(problemFlow.createBatch(problems, testCasesPerProblem));
     }
 
-    public PageData<ProblemData> getPage(int page, int size) throws ApiException {
-        PageData<ProblemWithVisibleTestCases> result = problemFlow.getPage(page, size);
+    public ProblemData getBySlug(String slug, String googleId) throws ApiException {
+        return ConversionHelper.convert(problemFlow.getWithVisibleTestCases(slug, googleId));
+    }
+
+    public PageData<ProblemData> getPage(ProblemFilterForm filter, int page, int size, String googleId)
+            throws ApiException {
+        if (filter.getSort() == null || filter.getSort().isBlank()) {
+            filter.setSort("rating-asc"); // default ordering: easiest first (matches the UI default)
+        }
+        PageData<VisibleProblemResult> result = problemFlow.getPage(filter, page, size, googleId);
         List<ProblemData> content = result.getContent().stream().map(ConversionHelper::convert).toList();
         return ConversionHelper.toPage(content, result.getPage(), result.getSize(), result.getTotalElements());
+    }
+
+    public List<String> getFilteredSlugs(ProblemFilterForm filter, String googleId) throws ApiException {
+        if (filter.getSort() == null || filter.getSort().isBlank()) {
+            filter.setSort("rating-asc"); // keep "next" order consistent with the list default
+        }
+        return problemFlow.getFilteredSlugs(filter, googleId);
+    }
+
+    public FilterOptionsData getFilterOptions() {
+        return ConversionHelper.toFilterOptionsData(problemFlow.getFilterOptions());
     }
 }

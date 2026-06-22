@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 
@@ -43,6 +44,26 @@ public class SubmissionApi extends AbstractApi {
         submission.setTotalTests(totalTests);
     }
 
+    // Idempotent terminal-failure transition for a submission that never produced a real verdict
+    // (judge exhausted retries, or never ran). Returns the submission iff it transitioned this call
+    // (was PENDING) so the caller publishes exactly once; null if it was already resolved.
+    public Submission failIfPending(Long id) throws ApiException {
+        Submission submission = getCheckById(id);
+        if (submission.getVerdict() != Verdict.PENDING) {
+            return null;
+        }
+        submission.setVerdict(Verdict.INTERNAL_ERROR);
+        submission.setRuntimeMs(0L);
+        submission.setPassedTests(0);
+        submission.setTotalTests(0);
+        return submission;
+    }
+
+    // Orphans: still PENDING past the cutoff (judging never completed).
+    public List<Submission> getPendingOlderThan(Instant cutoff) {
+        return submissionDao.selectPendingOlderThan(cutoff);
+    }
+
     // Outbox: submissions persisted but not yet relayed to the judge queue.
     public List<Submission> getUndispatched(int limit) {
         return submissionDao.selectUndispatched(limit);
@@ -50,5 +71,27 @@ public class SubmissionApi extends AbstractApi {
 
     public void markDispatched(Long id) throws ApiException {
         getCheckById(id).setDispatched(true);
+    }
+
+    public Submission findFirstAcceptedSubmission(Long matchId) {
+        List<Submission> submissions = submissionDao.selectByMatchId(matchId);
+
+        for(Submission submission : submissions){
+            if(submission.getVerdict().equals(Verdict.ACCEPTED)){
+                return submission;
+            }
+        }
+
+        return null;
+    }
+
+    // A user's submissions for one problem (solo + duel), latest first.
+    public List<Submission> getByUserAndProblem(Long userId, Long problemId) {
+        return submissionDao.selectByUserIdAndProblemId(userId, problemId);
+    }
+
+    // (problemId, verdict) rows, newest first — for building each problem's latest status.
+    public List<Object[]> getProblemStatuses(Long userId) {
+        return submissionDao.selectProblemStatuses(userId);
     }
 }

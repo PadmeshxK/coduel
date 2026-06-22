@@ -30,6 +30,10 @@ public abstract class BaseDao<T> {
         return entity;
     }
 
+    public void delete(T entity) {
+        em.remove(entity);
+    }
+
     public void flush() {
         em.flush();
     }

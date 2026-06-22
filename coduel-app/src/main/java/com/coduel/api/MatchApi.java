@@ -6,6 +6,7 @@ import com.coduel.common.exception.ApiException;
 import com.coduel.dao.MatchDao;
 import com.coduel.entity.Match;
 import com.coduel.model.constant.Errors;
+import com.coduel.model.constant.MatchEndReason;
 import com.coduel.model.constant.MatchState;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -34,24 +35,26 @@ public class MatchApi extends AbstractApi {
         return match;
     }
 
-    // First ACCEPTED wins; idempotent. Returns true only on the ACTIVE -> FINISHED transition.
-    public boolean finish(Long id, Long winnerUserId) throws ApiException {
+    // A winner is decided (solve / forfeit / walkout); idempotent. True only on ACTIVE -> FINISHED.
+    public boolean markFinished(Long id, Long winnerUserId, MatchEndReason reason) throws ApiException {
         Match match = getCheckById(id);
         if (match.getState() != MatchState.ACTIVE) {
             return false;
         }
         match.setWinnerUserId(winnerUserId);
+        match.setEndReason(reason);
         match.setState(MatchState.FINISHED);
         match.setEndedAt(Instant.now());
         return true;
     }
 
-    // Timed out, no winner; idempotent. Returns true only on the ACTIVE -> EXPIRED transition.
-    public boolean expire(Long id) throws ApiException {
+    // No winner (no-show void / timeout); idempotent. ACTIVE -> EXPIRED.
+    public boolean expire(Long id, MatchEndReason reason) throws ApiException {
         Match match = getCheckById(id);
         if (match.getState() != MatchState.ACTIVE) {
             return false;
         }
+        match.setEndReason(reason);
         match.setState(MatchState.EXPIRED);
         match.setEndedAt(Instant.now());
         return true;
@@ -59,5 +62,10 @@ public class MatchApi extends AbstractApi {
 
     public List<Match> getActiveOlderThan(Instant cutoff) {
         return matchDao.selectActiveOlderThan(cutoff);
+    }
+
+    // The room's in-progress match, or null if the room is idle (back in its lobby).
+    public Match findActiveByRoomId(Long roomId) {
+        return matchDao.selectActiveByRoomId(roomId);
     }
 }

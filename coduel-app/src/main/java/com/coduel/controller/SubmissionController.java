@@ -17,7 +17,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/submissions")
+@RequestMapping("/submission")
 public class SubmissionController {
 
     @Autowired
@@ -32,7 +32,8 @@ public class SubmissionController {
     }
 
     @GetMapping("/{id}")
-    public SubmissionData get(@PathVariable("id") Long id) throws ApiException {
-        return submissionDto.get(id);
+    public SubmissionData get(@PathVariable("id") Long id,
+                             @AuthenticationPrincipal OidcUser principal) throws ApiException {
+        return submissionDto.get(id, principal.getSubject());
     }
 }

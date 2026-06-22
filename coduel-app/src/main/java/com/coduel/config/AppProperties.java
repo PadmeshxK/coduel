@@ -25,11 +25,6 @@ public class AppProperties {
     @Value("${execution.max-timeout-ms:10000}")
     private long maxTimeoutMs;
 
-    // Environment-specific: dev = localhost, prod = managed cluster. (Topic names are NOT here —
-    // they're a fixed producer/consumer contract, kept as constants in code.)
-    @Value("${spring.kafka.bootstrap-servers}")
-    private String kafkaBootstrapServers;
-
     // Where the browser SPA is served. Single source of truth used for BOTH the OAuth2 success
     // redirect and the CORS allowed origin (one frontend = one browser origin allowed to call us).
     @Value("${frontend.base-url}")

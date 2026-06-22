@@ -1,0 +1,12 @@
+# build output
+**/target
+# the frontend deploys separately (Vercel/Netlify), not in the backend image
+coduel-ui
+# vcs / local / docs / scratch
+.git
+.gitignore
+.idea
+*.log
+logs
+mockups
+docs

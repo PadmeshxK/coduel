@@ -4,6 +4,7 @@ import com.coduel.api.MatchApi;
 import com.coduel.entity.Match;
 import com.coduel.helper.ConversionHelper;
 import com.coduel.interfaces.MatchEventPublisher;
+import com.coduel.model.constant.MatchEndReason;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -37,8 +38,9 @@ public class MatchTimeoutSweeper {
         for (Match match : stale) {
             try {
                 // expire() is idempotent (no-op if it already finished/expired).
-                if (matchApi.expire(match.getId())) {
-                    matchEventPublisher.publish(match.getId(), ConversionHelper.toMatchOverEvent(null));
+                if (matchApi.expire(match.getId(), MatchEndReason.TIMEOUT)) {
+                    matchEventPublisher.publish(match.getId(),
+                            ConversionHelper.toMatchOverEvent(null, MatchEndReason.TIMEOUT));
                     log.info("Match {} expired after {} min", match.getId(), MATCH_TTL_MINUTES);
                 }
             } catch (Exception e) {

@@ -10,4 +10,5 @@ public class MatchParticipantData {
     private Long userId;
     private String displayName;
     private String avatarUrl;
+    private boolean forfeit;
 }

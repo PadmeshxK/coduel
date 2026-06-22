@@ -15,7 +15,6 @@ import lombok.Setter;
 @Setter
 @Entity
 @Table(
-        name = "leaderboard",
         uniqueConstraints = @UniqueConstraint(name = "uk_leaderboard_user", columnNames = "user_id"),
         indexes = @Index(name = "idx_leaderboard_wins", columnList = "wins"))
 public class Leaderboard extends BaseEntity {

@@ -18,4 +18,6 @@ public class SubmissionData {
     private Long runtimeMs;
     private Integer passedTests;
     private Integer totalTests;
+    private Long createdAtMs;
+    private String sourceCode;
 }

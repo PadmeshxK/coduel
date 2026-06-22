@@ -1,26 +1,38 @@
 package com.coduel.dto;
 
-import com.coduel.api.UserApi;
 import com.coduel.common.dto.AbstractDto;
 import com.coduel.common.exception.ApiException;
+import com.coduel.flow.UserFlow;
 import com.coduel.helper.ConversionHelper;
+import com.coduel.model.data.FriendData;
 import com.coduel.model.data.UserProfileData;
 import com.coduel.model.form.UserProfileForm;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
 
 @Component
 public class UserDto extends AbstractDto {
 
     @Autowired
-    private UserApi userApi;
+    private UserFlow userFlow;
 
     public UserProfileData getProfile(String googleId) throws ApiException {
-        return ConversionHelper.toUserProfileData(userApi.getCheckByGoogleId(googleId));
+        return ConversionHelper.toUserProfileData(userFlow.getByGoogleId(googleId));
     }
 
-    @Transactional(rollbackFor = ApiException.class)
+    // Public directory search (no emails) — each hit carries the caller's relationship to it.
+    public List<FriendData> search(String query, String googleId) throws ApiException {
+        return userFlow.searchByUserPrefix(query, googleId).stream()
+                .map(ConversionHelper::toFriendData)
+                .toList();
+    }
+
+    public boolean isDisplayNameAvailable(String displayName, String googleId) throws ApiException {
+        return userFlow.isDisplayNameAvailable(displayName, googleId);
+    }
+
     public UserProfileData updateProfile(UserProfileForm form, String googleId) throws ApiException {
         checkValid(form);
         trim(form);
@@ -29,6 +41,6 @@ public class UserDto extends AbstractDto {
                 ? null
                 : form.getAvatarUrl();
         return ConversionHelper.toUserProfileData(
-                userApi.updateProfile(googleId, form.getDisplayName(), avatarUrl));
+                userFlow.updateProfile(googleId, form.getDisplayName(), avatarUrl));
     }
 }

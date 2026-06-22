@@ -31,4 +31,7 @@ public class MatchParticipant extends BaseEntity {
 
     @Column(nullable = false)
     private Long userId;
+
+    @Column(nullable = false)
+    private boolean forfeit = false;
 }

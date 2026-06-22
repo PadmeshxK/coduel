@@ -33,6 +33,13 @@ public abstract class AbstractDto {
         throw new ApiException(ApiStatus.BAD_DATA, Errors.ERR_002, List.of(detail));
     }
 
+    /** Bean Validation on every form in the list (e.g. a bulk-create payload). */
+    protected <T> void checkValid(List<T> forms) throws ApiException {
+        for (T form : forms) {
+            checkValid(form);
+        }
+    }
+
     /** Trim every non-null, non-@NoTrim String field on the form, in place. */
     protected void trim(Object form) throws ApiException {
         if (form == null) {
@@ -52,6 +59,13 @@ public abstract class AbstractDto {
                 log.error("Failed to trim {} on {}", field.getName(), form.getClass().getSimpleName(), e);
                 throw new ApiException(ApiStatus.UNKNOWN_ERROR, Errors.ERR_003, List.of(field.getName()));
             }
+        }
+    }
+
+    /** Trim every form in the list, in place. */
+    protected void trim(List<?> forms) throws ApiException {
+        for (Object form : forms) {
+            trim(form);
         }
     }
 }
