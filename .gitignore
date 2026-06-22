@@ -59,7 +59,6 @@ CLAUDE.md
 
 # ---- Project docs & notes ----
 docs/
-*.md
 
 # ---- Env / secrets ----
 .env
