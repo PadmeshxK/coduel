@@ -14,6 +14,7 @@ import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.socket.messaging.SessionConnectEvent;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
+import org.springframework.web.socket.messaging.SessionSubscribeEvent;
 
 import java.security.Principal;
 import java.util.ArrayList;
@@ -58,9 +59,21 @@ public class PresenceService {
     @EventListener
     public void onConnect(SessionConnectEvent event) {
         StompHeaderAccessor accessor = StompHeaderAccessor.wrap(event.getMessage());
-        Principal principal = accessor.getUser();
-        String sessionId = accessor.getSessionId();
-        if (principal == null || sessionId == null) {
+        register(accessor.getUser(), accessor.getSessionId());
+    }
+
+    // Fallback: in some setups the principal isn't populated on the CONNECT event (so onConnect would
+    // never broadcast → presence looked "static until reload"). The principal IS reliably present on
+    // SUBSCRIBE, and every client subscribes to its feeds on connect — so register here too. Idempotent
+    // (guarded on a known session), so the many per-session subscribes don't re-broadcast.
+    @EventListener
+    public void onSubscribe(SessionSubscribeEvent event) {
+        StompHeaderAccessor accessor = StompHeaderAccessor.wrap(event.getMessage());
+        register(accessor.getUser(), accessor.getSessionId());
+    }
+
+    private void register(Principal principal, String sessionId) {
+        if (principal == null || sessionId == null || sessions.containsKey(sessionId)) {
             return;
         }
         try {
@@ -71,7 +84,7 @@ public class PresenceService {
                 broadcast(userId, true); // offline -> online: tell their friends
             }
         } catch (Exception e) {
-            log.warn("Presence connect failed: {}", e.getMessage());
+            log.warn("Presence register failed: {}", e.getMessage());
         }
     }
 

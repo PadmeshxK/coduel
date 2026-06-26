@@ -25,4 +25,9 @@ public interface NotificationInbox {
 
     // Drop one notification once it's acted on. No-op if absent.
     void remove(String googleId, String id);
+
+    // Atomically drop one notification, returning true iff this call is the one that removed it (it was
+    // present). The atomic arbiter for races on a single entry — e.g. a duel challenge being accepted
+    // and withdrawn at the same instant: exactly one of the two wins and proceeds.
+    boolean removeIfPresent(String googleId, String id);
 }

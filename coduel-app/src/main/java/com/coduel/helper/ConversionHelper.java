@@ -7,18 +7,31 @@ import com.coduel.entity.Friendship;
 import com.coduel.entity.Problem;
 import com.coduel.entity.Submission;
 import com.coduel.entity.TestCase;
+import com.coduel.entity.Room;
 import com.coduel.entity.RoomMember;
 import com.coduel.entity.User;
 import com.coduel.entity.Leaderboard;
 import com.coduel.entity.Conversation;
+import com.coduel.entity.ConversationSetting;
 import com.coduel.entity.Message;
+import com.coduel.entity.MessageReaction;
+import com.coduel.entity.PinnedMessage;
 import com.coduel.execution.model.constant.ExecutionVerdict;
 import com.coduel.execution.model.request.ExecRequest;
 import com.coduel.execution.model.response.ExecResponse;
 import com.coduel.model.constant.*;
 import com.coduel.model.data.ChallengeData;
 import com.coduel.model.data.ConversationData;
+import com.coduel.model.data.ConversationSettingData;
 import com.coduel.model.data.MessageData;
+import com.coduel.model.data.MessageSearchData;
+import com.coduel.model.data.MessageUpdateData;
+import com.coduel.model.data.PinEventData;
+import com.coduel.model.data.PinnedMessageData;
+import com.coduel.model.data.ReactionData;
+import com.coduel.model.data.ReactionEventData;
+import com.coduel.model.data.ReplyPreviewData;
+import com.coduel.model.data.UploadData;
 import com.coduel.model.data.ExecutionData;
 import com.coduel.model.data.FilterOptionsData;
 import com.coduel.model.data.FriendData;
@@ -26,8 +39,10 @@ import com.coduel.model.data.FriendRequestData;
 import com.coduel.model.data.MatchData;
 import com.coduel.model.data.NotificationData;
 import com.coduel.model.data.PresenceData;
+import com.coduel.model.data.ReadReceiptData;
 import com.coduel.model.data.RoomChatData;
 import com.coduel.model.data.TypingData;
+import com.coduel.model.result.MarkReadResult;
 import com.coduel.model.data.RunAcceptedData;
 import com.coduel.model.message.RunTask;
 import com.coduel.model.data.RoomData;
@@ -42,6 +57,7 @@ import com.coduel.model.data.LeaderboardData;
 import com.coduel.model.data.SubmissionData;
 import com.coduel.model.data.TestCaseData;
 import com.coduel.model.data.UserProfileData;
+import com.coduel.model.form.ConversationSettingForm;
 import com.coduel.model.form.ExecutionForm;
 import com.coduel.model.form.ProblemForm;
 import com.coduel.model.form.SubmissionForm;
@@ -49,6 +65,11 @@ import com.coduel.model.form.TestCaseForm;
 import com.coduel.model.result.ChallengeResult;
 import com.coduel.model.result.ConversationView;
 import com.coduel.model.result.DmSentResult;
+import com.coduel.model.result.MessageUpdateResult;
+import com.coduel.model.result.MessageView;
+import com.coduel.model.result.PinResult;
+import com.coduel.model.result.ReactionResult;
+import com.coduel.model.result.TypingSignalResult;
 import com.coduel.model.result.FilterOptionsResult;
 import com.coduel.model.result.FriendListResult;
 import com.coduel.model.result.FriendResult;
@@ -166,11 +187,19 @@ public class ConversionHelper {
 
     // ---- chat / direct messages ----
 
-    public static Message toMessage(Long conversationId, Long senderId, String body) {
+    public static Message toMessage(Long conversationId, Long senderId, String body, Long replyToId,
+                                    MessageKind kind, String codeLanguage, String attachmentUrl, String sharedRef,
+                                    Integer durationMs) {
         Message message = new Message();
         message.setConversationId(conversationId);
         message.setSenderId(senderId);
         message.setBody(body);
+        message.setReplyToId(replyToId);
+        message.setKind(kind == null ? MessageKind.TEXT : kind);
+        message.setCodeLanguage(codeLanguage);
+        message.setAttachmentUrl(attachmentUrl);
+        message.setSharedRef(sharedRef);
+        message.setDurationMs(durationMs);
         return message;
     }
 
@@ -181,17 +210,228 @@ public class ConversionHelper {
         return conversation;
     }
 
+    public static Room toRoom() {
+        Room room = new Room();
+        room.setState(RoomState.OPEN);
+        room.setCreatedAtMs(Instant.now().toEpochMilli());
+        return room;
+    }
+
+    public static RoomMember toRoomMember(Long userId) {
+        RoomMember member = new RoomMember();
+        member.setUserId(userId);
+        return member;
+    }
+
     public static MessageData toMessageData(Message message) {
         MessageData data = new MessageData();
         data.setMessageId(message.getId());
         data.setConversationId(message.getConversationId());
         data.setSenderId(message.getSenderId());
-        data.setBody(message.getBody());
+        boolean deleted = message.getDeletedAt() != null;
+        data.setDeleted(deleted);
+        data.setBody(deleted ? "" : message.getBody()); // never serve a deleted message's text
         data.setCreatedAtMs(message.getCreatedAt() != null ? message.getCreatedAt().toEpochMilli() : null);
+        data.setEditedAtMs(message.getEditedAt() != null ? message.getEditedAt().toEpochMilli() : null);
+        // A message is CODE only if it actually carries a language. This guards legacy rows (the kind
+        // column was added later, so old messages can have a non-TEXT value but no language) from being
+        // mis-rendered as code — they fall back to their original text body.
+        boolean isCode = message.getKind() == MessageKind.CODE
+                && message.getCodeLanguage() != null && !message.getCodeLanguage().isBlank();
+        boolean isImage = message.getKind() == MessageKind.IMAGE
+                && message.getAttachmentUrl() != null && !message.getAttachmentUrl().isBlank();
+        boolean isProblem = message.getKind() == MessageKind.PROBLEM_SHARE
+                && message.getSharedRef() != null && !message.getSharedRef().isBlank();
+        boolean isVoice = message.getKind() == MessageKind.VOICE
+                && message.getAttachmentUrl() != null && !message.getAttachmentUrl().isBlank();
+        data.setKind(isCode ? MessageKind.CODE.name()
+                : isImage ? MessageKind.IMAGE.name()
+                : isProblem ? MessageKind.PROBLEM_SHARE.name()
+                : isVoice ? MessageKind.VOICE.name()
+                : MessageKind.TEXT.name());
+        data.setCodeLanguage(isCode && !deleted ? message.getCodeLanguage() : null);
+        // attachmentUrl backs both IMAGE and VOICE.
+        data.setAttachmentUrl((isImage || isVoice) && !deleted ? message.getAttachmentUrl() : null);
+        data.setSharedRef(isProblem && !deleted ? message.getSharedRef() : null);
+        data.setDurationMs(isVoice && !deleted ? message.getDurationMs() : null);
         return data;
     }
 
-    public static ConversationData toConversationData(Conversation conversation, User other, boolean unread) {
+    // A message with its reactions + replied-to quote attached (thread-page load, and the echoed/pushed
+    // send). The bare overload above is used where neither applies.
+    public static MessageData toMessageData(Message message, List<MessageReaction> reactions, Message replyTo) {
+        MessageData data = toMessageData(message);
+        if (data.isDeleted()) {
+            return data; // a tombstone carries no reactions / quote
+        }
+        data.setReactions(reactions.stream().map(ConversionHelper::toReactionData).toList());
+        data.setReplyToId(message.getReplyToId());
+        if (replyTo != null) {
+            data.setReplyTo(toReplyPreviewData(replyTo));
+        }
+        return data;
+    }
+
+    // A search hit: the matched message snippet + the thread (other participant) it belongs to.
+    public static MessageSearchData toMessageSearchData(Message message, User other) {
+        MessageSearchData data = new MessageSearchData();
+        data.setMessageId(message.getId());
+        data.setConversationId(message.getConversationId());
+        data.setSenderId(message.getSenderId());
+        String body = message.getBody() == null ? "" : message.getBody();
+        data.setSnippet(body.length() <= 160 ? body : body.substring(0, 160));
+        // Same guard as toMessageData: a kind only counts if its payload is actually present, so legacy
+        // rows (kind column backfilled when added) don't mislabel plain text as code/image/etc.
+        boolean isCode = message.getKind() == MessageKind.CODE
+                && message.getCodeLanguage() != null && !message.getCodeLanguage().isBlank();
+        boolean isImage = message.getKind() == MessageKind.IMAGE
+                && message.getAttachmentUrl() != null && !message.getAttachmentUrl().isBlank();
+        boolean isProblem = message.getKind() == MessageKind.PROBLEM_SHARE
+                && message.getSharedRef() != null && !message.getSharedRef().isBlank();
+        boolean isVoice = message.getKind() == MessageKind.VOICE
+                && message.getAttachmentUrl() != null && !message.getAttachmentUrl().isBlank();
+        data.setKind(isCode ? "CODE" : isImage ? "IMAGE" : isProblem ? "PROBLEM_SHARE" : isVoice ? "VOICE" : "TEXT");
+        data.setCreatedAtMs(message.getCreatedAt() != null ? message.getCreatedAt().toEpochMilli() : null);
+        data.setOtherUserId(other.getId());
+        data.setOtherDisplayName(other.getDisplayName());
+        data.setOtherAvatarUrl(other.getAvatarUrl());
+        return data;
+    }
+
+    public static MessageUpdateData toMessageUpdateData(Message message) {
+        MessageUpdateData data = new MessageUpdateData();
+        data.setConversationId(message.getConversationId());
+        data.setMessageId(message.getId());
+        boolean deleted = message.getDeletedAt() != null;
+        data.setDeleted(deleted);
+        data.setBody(deleted ? "" : message.getBody());
+        data.setEditedAtMs(message.getEditedAt() != null ? message.getEditedAt().toEpochMilli() : null);
+        return data;
+    }
+
+    public static MessageUpdateResult toMessageUpdateResult(String otherGoogleId, MessageUpdateData update) {
+        MessageUpdateResult result = new MessageUpdateResult();
+        result.setOtherGoogleId(otherGoogleId);
+        result.setUpdate(update);
+        return result;
+    }
+
+    public static PinnedMessage toPinnedMessage(Long conversationId, Long messageId, Long pinnedByUserId) {
+        PinnedMessage pin = new PinnedMessage();
+        pin.setConversationId(conversationId);
+        pin.setMessageId(messageId);
+        pin.setPinnedByUserId(pinnedByUserId);
+        return pin;
+    }
+
+    public static PinnedMessageData toPinnedMessageData(Message message, Long pinnedByUserId) {
+        PinnedMessageData data = new PinnedMessageData();
+        data.setMessageId(message.getId());
+        data.setSenderId(message.getSenderId());
+        // Carry the kind so the client can render an icon + label; an image's body is only a caption,
+        // code's body is source we don't dump into the pin bar.
+        String body = message.getBody();
+        boolean isImage = message.getKind() == MessageKind.IMAGE
+                && message.getAttachmentUrl() != null && !message.getAttachmentUrl().isBlank();
+        boolean isCode = message.getKind() == MessageKind.CODE
+                && message.getCodeLanguage() != null && !message.getCodeLanguage().isBlank();
+        boolean isProblem = message.getKind() == MessageKind.PROBLEM_SHARE
+                && message.getSharedRef() != null && !message.getSharedRef().isBlank();
+        boolean isVoice = message.getKind() == MessageKind.VOICE
+                && message.getAttachmentUrl() != null && !message.getAttachmentUrl().isBlank();
+        // Non-text previews are an icon + label on the client; only TEXT dumps its body.
+        String preview = (isImage || isCode || isProblem || isVoice || body == null) ? "" : body;
+        data.setKind(isImage ? "IMAGE" : isCode ? "CODE" : isProblem ? "PROBLEM_SHARE" : isVoice ? "VOICE" : "TEXT");
+        data.setPreview(preview.length() <= 140 ? preview : preview.substring(0, 140));
+        data.setPinnedByUserId(pinnedByUserId);
+        return data;
+    }
+
+    public static PinEventData toPinEventData(Long conversationId, Long messageId, boolean pinned, PinnedMessageData pin) {
+        PinEventData data = new PinEventData();
+        data.setConversationId(conversationId);
+        data.setMessageId(messageId);
+        data.setPinned(pinned);
+        data.setPin(pin);
+        return data;
+    }
+
+    public static PinResult toPinResult(String otherGoogleId, PinEventData event) {
+        PinResult result = new PinResult();
+        result.setOtherGoogleId(otherGoogleId);
+        result.setEvent(event);
+        return result;
+    }
+
+    public static UploadData toUploadData(String url) {
+        UploadData data = new UploadData();
+        data.setUrl(url);
+        return data;
+    }
+
+    public static ReplyPreviewData toReplyPreviewData(Message message) {
+        ReplyPreviewData data = new ReplyPreviewData();
+        data.setMessageId(message.getId());
+        data.setSenderId(message.getSenderId());
+        // Carry the (guarded) kind so the quote can show an icon + label; only TEXT shows its body.
+        boolean isCode = message.getKind() == MessageKind.CODE
+                && message.getCodeLanguage() != null && !message.getCodeLanguage().isBlank();
+        boolean isImage = message.getKind() == MessageKind.IMAGE
+                && message.getAttachmentUrl() != null && !message.getAttachmentUrl().isBlank();
+        boolean isProblem = message.getKind() == MessageKind.PROBLEM_SHARE
+                && message.getSharedRef() != null && !message.getSharedRef().isBlank();
+        boolean isVoice = message.getKind() == MessageKind.VOICE
+                && message.getAttachmentUrl() != null && !message.getAttachmentUrl().isBlank();
+        data.setKind(isCode ? "CODE" : isImage ? "IMAGE" : isProblem ? "PROBLEM_SHARE" : isVoice ? "VOICE" : "TEXT");
+        String body = message.getBody() == null ? "" : message.getBody();
+        String preview = (isCode || isImage || isProblem || isVoice) ? "" : body;
+        data.setPreview(preview.length() <= 140 ? preview : preview.substring(0, 140));
+        return data;
+    }
+
+    public static ReactionData toReactionData(MessageReaction reaction) {
+        ReactionData data = new ReactionData();
+        data.setUserId(reaction.getUserId());
+        data.setEmoji(reaction.getEmoji());
+        return data;
+    }
+
+    public static MessageReaction toMessageReaction(Long messageId, Long userId, String emoji) {
+        MessageReaction reaction = new MessageReaction();
+        reaction.setMessageId(messageId);
+        reaction.setUserId(userId);
+        reaction.setEmoji(emoji);
+        return reaction;
+    }
+
+    public static MessageView toMessageView(Message message, List<MessageReaction> reactions, Message replyTo) {
+        MessageView view = new MessageView();
+        view.setMessage(message);
+        view.setReactions(reactions);
+        view.setReplyTo(replyTo);
+        return view;
+    }
+
+    public static ReactionEventData toReactionEventData(Long conversationId, Long messageId, Long userId,
+                                                        String emoji, boolean removed) {
+        ReactionEventData data = new ReactionEventData();
+        data.setConversationId(conversationId);
+        data.setMessageId(messageId);
+        data.setUserId(userId);
+        data.setEmoji(emoji);
+        data.setRemoved(removed);
+        return data;
+    }
+
+    public static ReactionResult toReactionResult(String otherGoogleId, ReactionEventData event) {
+        ReactionResult result = new ReactionResult();
+        result.setOtherGoogleId(otherGoogleId);
+        result.setEvent(event);
+        return result;
+    }
+
+    public static ConversationData toConversationData(Conversation conversation, User other, boolean unread,
+                                                      ConversationSetting setting) {
         ConversationData data = new ConversationData();
         data.setConversationId(conversation.getId());
         data.setOtherUserId(other.getId());
@@ -202,14 +442,39 @@ public class ConversionHelper {
                 ? conversation.getLastMessageAt().toEpochMilli() : null);
         data.setLastSenderId(conversation.getLastSenderId());
         data.setUnread(unread);
+        // The other participant's read marker, so the thread can show how far they've read ("Seen").
+        java.time.Instant otherRead = other.getId().equals(conversation.getLowerUserId())
+                ? conversation.getLowerUserLastReadAt()
+                : conversation.getHigherUserLastReadAt();
+        data.setOtherLastReadAtMs(otherRead != null ? otherRead.toEpochMilli() : null);
+        // The viewer's personalization for this row (null setting = defaults).
+        data.setNickname(setting != null ? setting.getNickname() : null);
+        data.setAccentHex(setting != null ? setting.getAccentHex() : null);
+        data.setMuted(setting != null && setting.isMuted());
         return data;
     }
 
-    public static DmSentResult toDmSentResult(Message message, String recipientGoogleId, User sender) {
+    public static ReadReceiptData toReadReceiptData(Long conversationId, Long readerUserId, Long readAtMs) {
+        ReadReceiptData data = new ReadReceiptData();
+        data.setConversationId(conversationId);
+        data.setReaderUserId(readerUserId);
+        data.setReadAtMs(readAtMs);
+        return data;
+    }
+
+    public static MarkReadResult toMarkReadResult(String otherGoogleId, ReadReceiptData receipt) {
+        MarkReadResult result = new MarkReadResult();
+        result.setOtherGoogleId(otherGoogleId);
+        result.setReceipt(receipt);
+        return result;
+    }
+
+    public static DmSentResult toDmSentResult(Message message, String recipientGoogleId, User sender, Message replyTo) {
         DmSentResult result = new DmSentResult();
         result.setMessage(message);
         result.setRecipientGoogleId(recipientGoogleId);
         result.setSender(sender);
+        result.setReplyTo(replyTo);
         return result;
     }
 
@@ -226,6 +491,13 @@ public class ConversionHelper {
         return data;
     }
 
+    public static TypingSignalResult toTypingSignalResult(String recipientGoogleId, TypingData typing) {
+        TypingSignalResult result = new TypingSignalResult();
+        result.setRecipientGoogleId(recipientGoogleId);
+        result.setTyping(typing);
+        return result;
+    }
+
     public static RoomChatData toRoomChatData(User sender, String body) {
         RoomChatData data = new RoomChatData();
         data.setSenderId(sender.getId());
@@ -238,22 +510,94 @@ public class ConversionHelper {
 
     // Pushed to the recipient's notification queue when a DM arrives — a toast cue ("from" = the sender),
     // clicked to open the thread. Not an actionable bell item; the conversation lives on the Messages page.
-    public static NotificationData toDmNotification(User sender) {
+    public static NotificationData toDmNotification(User sender, String messageKind) {
         NotificationData data = new NotificationData();
         data.setType(NotificationEventType.DM_RECEIVED);
         data.setFromUserId(sender.getId());
         data.setFromDisplayName(sender.getDisplayName());
         data.setFromAvatarUrl(sender.getAvatarUrl());
+        data.setMessageKind(messageKind);
         data.setCreatedAtMs(Instant.now().toEpochMilli());
         return data;
     }
 
-    public static ConversationView toConversationView(Conversation conversation, User other, boolean unread) {
+    public static ConversationView toConversationView(Conversation conversation, User other, boolean unread,
+                                                      ConversationSetting setting) {
         ConversationView view = new ConversationView();
         view.setConversation(conversation);
         view.setOther(other);
         view.setUnread(unread);
+        view.setSetting(setting);
         return view;
+    }
+
+    // A fresh, unsaved settings row carrying all the defaults (via the entity's field initializers). Used
+    // both for "never customized" reads and as the base a first edit mutates before persisting.
+    public static ConversationSetting toConversationSetting(Long ownerUserId, Long peerUserId) {
+        ConversationSetting setting = new ConversationSetting();
+        setting.setOwnerUserId(ownerUserId);
+        setting.setPeerUserId(peerUserId);
+        return setting;
+    }
+
+    // Full-replace the personalization from the form (validated upstream). quickReactionEmoji is only
+    // overwritten when non-blank so a client that omits it keeps the current emoji rather than clearing it.
+    public static void applyConversationSettingForm(ConversationSetting setting, ConversationSettingForm form) {
+        setting.setThemeMode(form.getThemeMode());
+        setting.setAccentHex(form.getAccentHex());
+        setting.setBackgroundPreset(form.getBackgroundPreset());
+        setting.setBackgroundImageUrl(form.getBackgroundImageUrl());
+        setting.setBackgroundDim(form.getBackgroundDim());
+        setting.setBackgroundBlur(form.getBackgroundBlur());
+        setting.setBubbleStyle(form.getBubbleStyle());
+        setting.setMessageFont(form.getMessageFont());
+        setting.setMessageTextSize(form.getMessageTextSize() != null
+                ? form.getMessageTextSize() : com.coduel.model.constant.MessageTextSize.MEDIUM);
+        setting.setMessageDensity(form.getMessageDensity() != null
+                ? form.getMessageDensity() : com.coduel.model.constant.MessageDensity.COZY);
+        setting.setNickname(form.getNickname());
+        if (form.getQuickReactionEmoji() != null && !form.getQuickReactionEmoji().isBlank()) {
+            setting.setQuickReactionEmoji(form.getQuickReactionEmoji());
+        }
+        setting.setReadReceiptsEnabled(form.isReadReceiptsEnabled());
+        setting.setMuted(form.isMuted());
+        setting.setArchived(form.isArchived());
+        // Stamp the enable time on the off→on transition (and clear it on on→off) so the sweep only
+        // affects messages sent while disappearing was on. A TTL change while it stays on keeps the
+        // original enable instant.
+        Integer oldTtl = setting.getDisappearingTtlSeconds();
+        Integer newTtl = form.getDisappearingTtlSeconds();
+        if (newTtl != null && oldTtl == null) {
+            setting.setDisappearingEnabledAt(Instant.now());
+        } else if (newTtl == null) {
+            setting.setDisappearingEnabledAt(null);
+        }
+        setting.setDisappearingTtlSeconds(newTtl);
+    }
+
+    public static ConversationSettingData toConversationSettingData(ConversationSetting setting) {
+        ConversationSettingData data = new ConversationSettingData();
+        data.setPeerUserId(setting.getPeerUserId());
+        data.setThemeMode(setting.getThemeMode().name());
+        data.setAccentHex(setting.getAccentHex());
+        data.setBackgroundPreset(setting.getBackgroundPreset().name());
+        data.setBackgroundImageUrl(setting.getBackgroundImageUrl());
+        data.setBackgroundDim(setting.getBackgroundDim());
+        data.setBackgroundBlur(setting.getBackgroundBlur());
+        data.setBubbleStyle(setting.getBubbleStyle().name());
+        data.setMessageFont(setting.getMessageFont().name());
+        // Legacy rows (column added later) can be null → MEDIUM.
+        data.setMessageTextSize((setting.getMessageTextSize() != null
+                ? setting.getMessageTextSize() : com.coduel.model.constant.MessageTextSize.MEDIUM).name());
+        data.setMessageDensity((setting.getMessageDensity() != null
+                ? setting.getMessageDensity() : com.coduel.model.constant.MessageDensity.COZY).name());
+        data.setNickname(setting.getNickname());
+        data.setQuickReactionEmoji(setting.getQuickReactionEmoji());
+        data.setReadReceiptsEnabled(setting.isReadReceiptsEnabled());
+        data.setMuted(setting.isMuted());
+        data.setArchived(setting.isArchived());
+        data.setDisappearingTtlSeconds(setting.getDisappearingTtlSeconds());
+        return data;
     }
 
     public static Problem convert(ProblemForm form) {
@@ -641,11 +985,12 @@ public class ConversionHelper {
     }
 
     // Pushed to the target — actionable accept/decline, carries the challengeId.
-    public static NotificationData toDuelChallengeNotification(String challengeId, User challenger) {
+    public static NotificationData toDuelChallengeNotification(String challengeId, User challenger, String problemSlug) {
         NotificationData data = new NotificationData();
         data.setType(NotificationEventType.DUEL_CHALLENGE);
         data.setId(challengeId);
         data.setChallengeId(challengeId);
+        data.setProblemSlug(problemSlug);
         data.setFromUserId(challenger.getId());
         data.setFromDisplayName(challenger.getDisplayName());
         data.setFromAvatarUrl(challenger.getAvatarUrl());
@@ -682,6 +1027,16 @@ public class ConversionHelper {
         data.setFromUserId(fromUser.getId());
         data.setFromDisplayName(fromUser.getDisplayName());
         data.setFromAvatarUrl(fromUser.getAvatarUrl());
+        data.setCreatedAtMs(Instant.now().toEpochMilli());
+        return data;
+    }
+
+    // Live signal to the challenged user that the challenger withdrew — carries the challengeId so the
+    // client drops that exact pending popup/bell row (it was also removed from their inbox server-side).
+    public static NotificationData toChallengeWithdrawnNotification(String challengeId) {
+        NotificationData data = new NotificationData();
+        data.setType(NotificationEventType.CHALLENGE_WITHDRAWN);
+        data.setChallengeId(challengeId);
         data.setCreatedAtMs(Instant.now().toEpochMilli());
         return data;
     }

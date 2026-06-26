@@ -25,6 +25,9 @@ public class SecurityConfig {
                 .cors(Customizer.withDefaults())
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/health", "/error").permitAll()
+                        // Uploaded media is served by unguessable UUID URL (capability), so the image GET
+                        // needs no auth — and <img> tags can't carry the session cookie cross-origin anyway.
+                        .requestMatchers("/uploads/**").permitAll()
                         .anyRequest().authenticated()
                 )
                 // SPA-friendly: unauthenticated API calls get 401 (the frontend routes to /login),

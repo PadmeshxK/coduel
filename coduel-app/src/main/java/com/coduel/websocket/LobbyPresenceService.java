@@ -13,8 +13,11 @@ import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 import org.springframework.web.socket.messaging.SessionSubscribeEvent;
+import org.springframework.web.socket.messaging.SessionUnsubscribeEvent;
 
 import java.security.Principal;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -46,8 +49,11 @@ public class LobbyPresenceService {
     @Autowired
     private RoomEventPublisher roomEventPublisher;
 
-    // sessionId -> who is in which room
-    private final Map<String, Sub> sessions = new ConcurrentHashMap<>();
+    // (sessionId + ":" + subscriptionId) -> which room that subscription watches. Keyed per
+    // SUBSCRIPTION, not per session: the whole app shares ONE WebSocket, so a member "leaves" a room
+    // by UNSUBSCRIBING from its topic (the socket stays open) — a plain disconnect no longer means
+    // "left the room", it only fires on tab-close/logout.
+    private final Map<String, Sub> subs = new ConcurrentHashMap<>();
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread thread = new Thread(r, "lobby-presence");
         thread.setDaemon(true);
@@ -73,19 +79,42 @@ public class LobbyPresenceService {
         try {
             Long userId = userApi.getCheckByGoogleId(principal.getName()).getId();
             Long roomId = Long.parseLong(destination.substring(ROOM_TOPIC_PREFIX.length()));
-            sessions.put(accessor.getSessionId(), new Sub(userId, roomId));
+            subs.put(subKey(accessor.getSessionId(), accessor.getSubscriptionId()), new Sub(userId, roomId));
         } catch (Exception e) {
             log.warn("Lobby subscribe failed for {}: {}", destination, e.getMessage());
         }
     }
 
+    // Left the room's topic (navigated away) — the socket stays open on the shared connection, so this
+    // UNSUBSCRIBE is how we learn someone left the lobby. Without it, an empty room is never swept.
+    @EventListener
+    public void onUnsubscribe(SessionUnsubscribeEvent event) {
+        StompHeaderAccessor accessor = StompHeaderAccessor.wrap(event.getMessage());
+        Sub sub = subs.remove(subKey(accessor.getSessionId(), accessor.getSubscriptionId()));
+        if (sub != null) {
+            scheduler.schedule(() -> removeIfAbsent(sub.userId, sub.roomId), KICK_GRACE_MS, TimeUnit.MILLISECONDS);
+        }
+    }
+
+    // Socket fully closed (tab close / logout) — drop every room subscription it held and re-evaluate.
     @EventListener
     public void onDisconnect(SessionDisconnectEvent event) {
-        Sub sub = sessions.remove(event.getSessionId());
-        if (sub == null) {
-            return;
+        String prefix = event.getSessionId() + ":";
+        List<Sub> gone = new ArrayList<>();
+        subs.entrySet().removeIf(entry -> {
+            if (entry.getKey().startsWith(prefix)) {
+                gone.add(entry.getValue());
+                return true;
+            }
+            return false;
+        });
+        for (Sub sub : gone) {
+            scheduler.schedule(() -> removeIfAbsent(sub.userId, sub.roomId), KICK_GRACE_MS, TimeUnit.MILLISECONDS);
         }
-        scheduler.schedule(() -> removeIfAbsent(sub.userId, sub.roomId), KICK_GRACE_MS, TimeUnit.MILLISECONDS);
+    }
+
+    private String subKey(String sessionId, String subscriptionId) {
+        return sessionId + ":" + subscriptionId;
     }
 
     private void removeIfAbsent(Long userId, Long roomId) {
@@ -114,7 +143,7 @@ public class LobbyPresenceService {
     }
 
     private boolean isPresent(Long userId, Long roomId) {
-        return sessions.values().stream()
+        return subs.values().stream()
                 .anyMatch(s -> s.userId.equals(userId) && s.roomId.equals(roomId));
     }
 

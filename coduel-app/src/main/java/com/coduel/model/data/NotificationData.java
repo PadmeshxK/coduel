@@ -23,8 +23,13 @@ public class NotificationData {
     private Long requestId;
     // DUEL_CHALLENGE — the challenge to accept/decline.
     private String challengeId;
+    // DUEL_CHALLENGE — optional specific problem to duel on (a shared-problem challenge); null = random.
+    private String problemSlug;
     // CHALLENGE_ACCEPTED — the duel match to jump into.
     private Long matchId;
+    // DM_RECEIVED — the kind of message ("TEXT"/"IMAGE"/"CODE"/"PROBLEM_SHARE"), so the toast/bell can
+    // say what they sent ("sent you an image", "shared a problem", …).
+    private String messageKind;
     // Common: who triggered it, and when (millis) for recency ordering in the notification center.
     private Long fromUserId;
     private String fromDisplayName;

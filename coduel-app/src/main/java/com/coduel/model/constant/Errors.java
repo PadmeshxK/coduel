@@ -57,7 +57,21 @@ public enum Errors {
     ERR_132("No conversation found with id {}"),
     ERR_133("You are not a participant of conversation {}"),
     ERR_134("You can only message your friends"),
-    ERR_135("You can't message yourself");
+    ERR_135("You can't message yourself"),
+    ERR_136("No message found with id {}"),
+    ERR_137("That reaction isn't valid"),
+    ERR_138("You can only reply to a message in this conversation"),
+    ERR_139("You can only edit or delete your own messages"),
+    ERR_140("This message can no longer be edited"),
+    ERR_141("You can't pin a deleted message"),
+    ERR_142("You can pin at most {} messages — unpin one first"),
+    ERR_143("No image was uploaded"),
+    ERR_144("Image is too large — maximum {} MB"),
+    ERR_145("Only PNG, JPEG, GIF or WebP images are allowed"),
+    ERR_146("Failed to store the image — please try again"),
+    ERR_147("A message needs text or an image"),
+    ERR_148("A shared problem reference is required"),
+    ERR_149("Only audio voice notes are allowed");
 
     private final String message;
 

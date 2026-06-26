@@ -54,15 +54,21 @@ public class ConversationApi extends AbstractApi {
         return conversationDao.selectForUser(userId);
     }
 
+    // Find the existing 1:1 thread for a pair (no create) — null if they've never messaged.
+    public Conversation find(Long userA, Long userB) {
+        return conversationDao.selectBetween(Math.min(userA, userB), Math.max(userA, userB));
+    }
+
     // Mark the thread read up to now for this participant (dirty-checked on commit). Persisted, so the
     // read state survives leaving and re-entering the thread — and reloads on another device.
-    public void markRead(Conversation conversation, Long userId) {
+    public Instant markRead(Conversation conversation, Long userId) {
         Instant now = Instant.now();
         if (userId.equals(conversation.getLowerUserId())) {
             conversation.setLowerUserLastReadAt(now);
         } else {
             conversation.setHigherUserLastReadAt(now);
         }
+        return now;
     }
 
     // Unread for this viewer = there's a last message, it wasn't theirs, and it's newer than their read

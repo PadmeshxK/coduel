@@ -63,6 +63,13 @@ public class RedisNotificationInbox implements NotificationInbox {
         redis.opsForHash().delete(PREFIX + googleId, id);
     }
 
+    @Override
+    public boolean removeIfPresent(String googleId, String id) {
+        // HDEL returns the number of fields actually removed — 1 only for the caller that wins the race.
+        Long removed = redis.opsForHash().delete(PREFIX + googleId, id);
+        return removed != null && removed > 0;
+    }
+
     private static boolean isExpired(NotificationData n) {
         return n.getExpiresAtMs() != null && Instant.now().toEpochMilli() > n.getExpiresAtMs();
     }

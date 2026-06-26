@@ -16,4 +16,6 @@ public class DmSentResult {
     private Message message;
     private String recipientGoogleId;
     private User sender;
+    // The replied-to message (null = not a reply), so the echoed/pushed payload carries the quote.
+    private Message replyTo;
 }

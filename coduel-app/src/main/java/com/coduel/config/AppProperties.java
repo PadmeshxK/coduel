@@ -30,10 +30,35 @@ public class AppProperties {
     @Value("${frontend.base-url}")
     private String frontendBaseUrl;
 
+    // Directory that holds uploaded media (chat images). Dev default = under the user's home; prod can
+    // point elsewhere (or a future adapter can swap to S3). Files are served at /uploads/**.
+    @Value("${uploads.dir:${user.home}/.coduel/uploads}")
+    private String uploadsDir;
+
     // Session lifetime — also used as the SESSION cookie Max-Age. Mirrors spring.session.timeout
     // (which Spring uses for the Redis TTL) so the cookie and server-side session share one value.
     @Value("${spring.session.timeout}")
     private Duration sessionTimeout;
+
+    // ---- Media storage (Cloudflare R2). Secrets come from the env; the rest are non-secret. ----
+    @Value("${media.storage:local}")
+    private String mediaStorage;
+
+    @Value("${r2.endpoint:}")
+    private String r2Endpoint;
+
+    @Value("${r2.bucket:}")
+    private String r2Bucket;
+
+    @Value("${r2.access-key:}")
+    private String r2AccessKey;
+
+    @Value("${r2.secret-key:}")
+    private String r2SecretKey;
+
+    // Public read URL (r2.dev or a custom domain) prepended to a stored object's key for the client.
+    @Value("${r2.public-base-url:}")
+    private String r2PublicBaseUrl;
 
     @PostConstruct
     public void init() {

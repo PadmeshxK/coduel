@@ -4,7 +4,6 @@ import com.coduel.api.MatchApi;
 import com.coduel.api.MatchParticipantApi;
 import com.coduel.api.ProblemApi;
 import com.coduel.api.RoomApi;
-import com.coduel.api.RoomMemberApi;
 import com.coduel.api.UserApi;
 import com.coduel.common.constant.ApiStatus;
 import com.coduel.common.exception.ApiException;
@@ -24,7 +23,6 @@ import com.coduel.model.result.InviteResult;
 import com.coduel.model.result.RoomDetailResult;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashMap;
 import java.util.List;
@@ -32,12 +30,14 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Orchestrates the persistent private room. A room outlives its matches: the host starts a match,
- * it finishes, everyone returns to the room, and the host can start another (rematch). The oldest
- * member (lowest id) is the host; host transfer on leave is implicit via that ordering.
+ * Orchestrates the ephemeral private room (Redis-backed via RoomApi — NOT the DB). A room outlives its
+ * matches: the host starts a match, it finishes, everyone returns, and the host can start another. The
+ * roster is embedded in the Room aggregate; the first member (insertion order) is the host, so host
+ * transfer on leave is implicit. Each roster mutation is followed by an explicit roomApi.save (there's
+ * no JPA dirty-checking here). Not @Transactional — room state is Redis; the one DB write (match
+ * creation in start()) runs in MatchFlow's own transaction.
  */
 @Component
-@Transactional(rollbackFor = ApiException.class)
 public class RoomFlow {
 
     // Fixed product cap — how many people can be in one room.
@@ -45,8 +45,6 @@ public class RoomFlow {
 
     @Autowired
     private RoomApi roomApi;
-    @Autowired
-    private RoomMemberApi roomMemberApi;
     @Autowired
     private MatchFlow matchFlow;
     @Autowired
@@ -61,20 +59,18 @@ public class RoomFlow {
     // Open a new room; the creator is the first member (and thus the host).
     public Room create(String googleId) throws ApiException {
         Long userId = userApi.getCheckByGoogleId(googleId).getId();
-        Room room = new Room();
-        room.setState(RoomState.OPEN);
-        Room saved = roomApi.add(room);
-        roomMemberApi.add(member(saved.getId(), userId));
-        return saved;
+        Room room = ConversionHelper.toRoom();                       // fresh OPEN room, empty roster
+        room.getMembers().add(ConversionHelper.toRoomMember(userId)); // creator = host
+        return roomApi.save(room);                                    // assigns id + persists
     }
 
-    // Returns both users so the Dto can push the invite notification post-transaction.
+    // Returns both users so the Dto can push the invite notification post-action.
     public InviteResult invite(Long roomId, Long inviteeId, String googleId) throws ApiException {
         User requester = userApi.getCheckByGoogleId(googleId);
-        List<RoomMember> members = roomMemberApi.getByRoomId(roomId);
-        requireMember(members, requester.getId(), roomId);
-        requireOpen(roomApi.getCheckById(roomId));
-        if (members.size() >= MAX_ROOM_PLAYERS) {
+        Room room = roomApi.getCheckById(roomId);
+        requireMember(room.getMembers(), requester.getId(), roomId);
+        requireOpen(room);
+        if (room.getMembers().size() >= MAX_ROOM_PLAYERS) {
             throw new ApiException(ApiStatus.BAD_DATA, Errors.ERR_116, List.of(MAX_ROOM_PLAYERS));
         }
         User invitee = userApi.getCheckById(inviteeId);
@@ -84,13 +80,14 @@ public class RoomFlow {
     // Accept an invite / join the room. Idempotent — re-joining is a no-op.
     public void join(Long roomId, String googleId) throws ApiException {
         Long userId = userApi.getCheckByGoogleId(googleId).getId();
-        requireOpen(roomApi.getCheckById(roomId));
-        List<RoomMember> members = roomMemberApi.getByRoomId(roomId);
-        if (members.size() >= MAX_ROOM_PLAYERS) {
+        Room room = roomApi.getCheckById(roomId);
+        requireOpen(room);
+        if (room.getMembers().size() >= MAX_ROOM_PLAYERS) {
             throw new ApiException(ApiStatus.BAD_DATA, Errors.ERR_116, List.of(MAX_ROOM_PLAYERS));
         }
-        if (members.stream().noneMatch(m -> m.getUserId().equals(userId))) {
-            roomMemberApi.add(member(roomId, userId));
+        if (room.getMembers().stream().noneMatch(m -> m.getUserId().equals(userId))) {
+            room.getMembers().add(ConversionHelper.toRoomMember(userId));
+            roomApi.save(room);
         }
     }
 
@@ -98,7 +95,8 @@ public class RoomFlow {
     // their signal), so a host call is a no-op.
     public void setReady(Long roomId, String googleId, boolean ready) throws ApiException {
         Long userId = userApi.getCheckByGoogleId(googleId).getId();
-        List<RoomMember> members = roomMemberApi.getByRoomId(roomId);
+        Room room = roomApi.getCheckById(roomId);
+        List<RoomMember> members = room.getMembers();
         requireMember(members, userId, roomId);
         if (members.get(0).getUserId().equals(userId)) {
             return; // host doesn't ready up
@@ -107,15 +105,17 @@ public class RoomFlow {
                 .filter(m -> m.getUserId().equals(userId))
                 .findFirst()
                 .ifPresent(m -> m.setReady(ready));
+        roomApi.save(room);
     }
 
     // Host starts a match for the current roster — only once every other member is ready (so nobody
     // is left stale in a finished match). Returns the new match id, and resets readiness for next time.
     public Long start(Long roomId, String googleId) throws ApiException {
         Long userId = userApi.getCheckByGoogleId(googleId).getId();
-        List<RoomMember> members = roomMemberApi.getByRoomId(roomId);
+        Room room = roomApi.getCheckById(roomId);
+        List<RoomMember> members = room.getMembers();
         requireHost(members, userId); // only the host may start — throws ERR_117 otherwise
-        requireOpen(roomApi.getCheckById(roomId));
+        requireOpen(room);
         validateActiveMatches(members);
         if (matchApi.findActiveByRoomId(roomId) != null) {
             throw new ApiException(ApiStatus.BAD_DATA, Errors.ERR_123, List.of());
@@ -133,6 +133,7 @@ public class RoomFlow {
         List<Long> userIds = members.stream().map(RoomMember::getUserId).toList();
         Match match = matchFlow.create(GameMode.PRIVATE, roomId, problem.getId(), userIds);
         members.forEach(m -> m.setReady(false)); // clean slate for the next match
+        roomApi.save(room);
         return match.getId();
     }
 
@@ -140,7 +141,7 @@ public class RoomFlow {
     public RoomDetailResult getView(Long roomId, String googleId) throws ApiException {
         Long userId = userApi.getCheckByGoogleId(googleId).getId();
         Room room = roomApi.getCheckById(roomId);
-        List<RoomMember> members = roomMemberApi.getByRoomId(roomId);
+        List<RoomMember> members = room.getMembers();
         requireMember(members, userId, roomId);
 
         Long hostId = members.get(0).getUserId();
@@ -158,11 +159,17 @@ public class RoomFlow {
         return removeMember(roomId, userId);
     }
 
-    // Remove a member by userId — used by leave() and the disconnect auto-kick. Closes the room if
-    // the host was the last person; otherwise the next-oldest member becomes host implicitly.
-    // Returns true when the room was closed. No-op (false) if they're no longer a member.
+    // Remove a member by userId — used by leave() and the disconnect/unsubscribe auto-kick. If they were
+    // the last person the room is now empty and useless, so we delete it from Redis outright (the live
+    // ROOM_CLOSED broadcast still drives the "room closed" screen for anyone who was watching). Otherwise
+    // the next-oldest member becomes host implicitly. Returns true when the room was closed. No-op (false)
+    // if the room is gone or they're no longer a member.
     public boolean removeMember(Long roomId, Long userId) throws ApiException {
-        List<RoomMember> members = roomMemberApi.getByRoomId(roomId);
+        Room room = roomApi.findById(roomId);
+        if (room == null) {
+            return false;
+        }
+        List<RoomMember> members = room.getMembers();
         RoomMember mine = members.stream()
                 .filter(m -> m.getUserId().equals(userId))
                 .findFirst().orElse(null);
@@ -170,10 +177,11 @@ public class RoomFlow {
             return false;
         }
         if (members.get(0).getUserId().equals(userId) && members.size() == 1) {
-            roomApi.getCheckById(roomId).setState(RoomState.CLOSED);
+            roomApi.delete(roomId); // last member left — the room is dead, so drop it from Redis entirely
             return true;
         }
-        roomMemberApi.delete(mine);
+        members.remove(mine);
+        roomApi.save(room);
         return false;
     }
 
@@ -181,7 +189,7 @@ public class RoomFlow {
     // persisted — the Dto pushes it to the Redis ring buffer and broadcasts it.
     public RoomChatData composeChat(String googleId, Long roomId, String body) throws ApiException {
         User sender = userApi.getCheckByGoogleId(googleId);
-        requireMember(roomMemberApi.getByRoomId(roomId), sender.getId(), roomId);
+        requireMember(roomApi.getCheckById(roomId).getMembers(), sender.getId(), roomId);
         String trimmed = body.strip();
         if (trimmed.length() > 1000) {
             trimmed = trimmed.substring(0, 1000);
@@ -192,14 +200,7 @@ public class RoomFlow {
     // Membership gate for reading the lobby chat history.
     public void requireMembership(String googleId, Long roomId) throws ApiException {
         Long userId = userApi.getCheckByGoogleId(googleId).getId();
-        requireMember(roomMemberApi.getByRoomId(roomId), userId, roomId);
-    }
-
-    private RoomMember member(Long roomId, Long userId) {
-        RoomMember m = new RoomMember();
-        m.setRoomId(roomId);
-        m.setUserId(userId);
-        return m;
+        requireMember(roomApi.getCheckById(roomId).getMembers(), userId, roomId);
     }
 
     private void requireMember(List<RoomMember> members, Long userId, Long roomId) throws ApiException {
@@ -231,9 +232,9 @@ public class RoomFlow {
     }
 
     private void validateActiveMatches(List<RoomMember> members) throws ApiException {
-        for(RoomMember member : members) {
+        for (RoomMember member : members) {
             Match match = findActiveMatch(member.getUserId());
-            if(!Objects.isNull(match)) {
+            if (!Objects.isNull(match)) {
                 throw new ApiException(ApiStatus.FORBIDDEN, Errors.ERR_124, List.of());
             }
         }

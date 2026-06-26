@@ -1,9 +1,10 @@
 package com.coduel.websocket;
 
 import com.coduel.api.MatchParticipantApi;
-import com.coduel.api.RoomMemberApi;
+import com.coduel.api.RoomApi;
 import com.coduel.api.UserApi;
 import com.coduel.common.exception.ApiException;
+import com.coduel.entity.Room;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
@@ -31,7 +32,7 @@ public class MatchSubscriptionInterceptor implements ChannelInterceptor {
     @Autowired
     private MatchParticipantApi matchParticipantApi;
     @Autowired
-    private RoomMemberApi roomMemberApi;
+    private RoomApi roomApi;
 
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
@@ -56,7 +57,8 @@ public class MatchSubscriptionInterceptor implements ChannelInterceptor {
             } else if (destination.startsWith(ROOM_TOPIC_PREFIX)) {
                 long roomId = parseId(destination, ROOM_TOPIC_PREFIX);
                 long userId = requireUserId(accessor);
-                boolean member = roomMemberApi.getByRoomId(roomId).stream()
+                Room room = roomApi.findById(roomId);
+                boolean member = room != null && room.getMembers().stream()
                         .anyMatch(m -> m.getUserId().equals(userId));
                 if (!member) {
                     throw new MessagingException("Not a member of room " + roomId);

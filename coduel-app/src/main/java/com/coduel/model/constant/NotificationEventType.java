@@ -16,6 +16,9 @@ public enum NotificationEventType {
     CHALLENGE_ACCEPTED,
     // A challenge you sent was declined — a quiet "they passed" cue.
     CHALLENGE_DECLINED,
+    // The challenger withdrew a pending challenge — live signal to the target so its popup/bell row
+    // drops (the inbox entry is removed server-side too); carries challengeId.
+    CHALLENGE_WITHDRAWN,
     // Ranked matchmaking paired you — carries matchId; both players navigate into the duel (no polling).
     MATCHMAKING_FOUND,
     // A friend sent you a direct message — a toast cue; the conversation itself lives on the Messages page.

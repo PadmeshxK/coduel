@@ -16,10 +16,12 @@ import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 import org.springframework.web.socket.messaging.SessionSubscribeEvent;
+import org.springframework.web.socket.messaging.SessionUnsubscribeEvent;
 
 import java.security.Principal;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -55,8 +57,10 @@ public class MatchPresenceService {
     @Autowired
     private MatchEventPublisher matchEventPublisher;
 
-    // sessionId -> who is watching which match
-    private final Map<String, Sub> sessions = new ConcurrentHashMap<>();
+    // (sessionId + ":" + subscriptionId) -> which match that subscription watches. Keyed per
+    // SUBSCRIPTION because the app shares ONE WebSocket: a player "leaves" a match by UNSUBSCRIBING
+    // from its topic (the socket stays open), so a disconnect alone no longer means "left the match".
+    private final Map<String, Sub> subs = new ConcurrentHashMap<>();
     // matches that have had both players present at least once (the duel actually started)
     private final Set<Long> readyMatches = ConcurrentHashMap.newKeySet();
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -82,7 +86,7 @@ public class MatchPresenceService {
         try {
             Long userId = userApi.getCheckByGoogleId(principal.getName()).getId();
             Long matchId = Long.parseLong(destination.substring(MATCH_TOPIC_PREFIX.length()));
-            sessions.put(accessor.getSessionId(), new Sub(userId, matchId));
+            subs.put(subKey(accessor.getSessionId(), accessor.getSubscriptionId()), new Sub(userId, matchId));
             log.info("WS presence: user {} present in match {}", userId, matchId);
             publishReadyIfAllPresent(matchId);
         } catch (Exception e) {
@@ -119,22 +123,51 @@ public class MatchPresenceService {
                 readyMatches.add(matchId);
             }
             // Delay slightly: the subscription that triggered this may not be fully registered with
-            // the broker yet, so an immediate send could miss the player who just subscribed.
+            // the broker yet, so an immediate send could miss the player who just subscribed. Fire
+            // twice (300ms + 1200ms) to close the broker-registration race on a loaded server — the
+            // client's MATCH_READY handler is idempotent, so a duplicate is harmless.
             scheduler.schedule(
                     () -> matchEventPublisher.publish(matchId, ConversionHelper.toMatchReadyEvent()),
                     300, TimeUnit.MILLISECONDS);
+            scheduler.schedule(
+                    () -> matchEventPublisher.publish(matchId, ConversionHelper.toMatchReadyEvent()),
+                    1200, TimeUnit.MILLISECONDS);
+        }
+    }
+
+    // Left the match topic (navigated out of the arena) — the shared socket stays open, so this
+    // UNSUBSCRIBE is how a mid-match leave is detected now (a disconnect only fires on tab-close).
+    @EventListener
+    public void onUnsubscribe(SessionUnsubscribeEvent event) {
+        StompHeaderAccessor accessor = StompHeaderAccessor.wrap(event.getMessage());
+        Sub sub = subs.remove(subKey(accessor.getSessionId(), accessor.getSubscriptionId()));
+        if (sub != null) {
+            scheduler.schedule(
+                    () -> forfeitIfAbsent(sub.userId, sub.matchId), FORFEIT_GRACE_MS, TimeUnit.MILLISECONDS);
         }
     }
 
     @EventListener
     public void onDisconnect(SessionDisconnectEvent event) {
-        Sub sub = sessions.remove(event.getSessionId());
-        if (sub == null) {
-            return;
+        // Socket fully closed (tab close / logout) — drop every match subscription it held and, for
+        // each, forfeit only if they haven't reconnected by the time the grace fires (i.e. not a refresh).
+        String prefix = event.getSessionId() + ":";
+        List<Sub> gone = new ArrayList<>();
+        subs.entrySet().removeIf(entry -> {
+            if (entry.getKey().startsWith(prefix)) {
+                gone.add(entry.getValue());
+                return true;
+            }
+            return false;
+        });
+        for (Sub sub : gone) {
+            scheduler.schedule(
+                    () -> forfeitIfAbsent(sub.userId, sub.matchId), FORFEIT_GRACE_MS, TimeUnit.MILLISECONDS);
         }
-        // Forfeit only if they haven't reconnected by the time this fires (i.e. not a refresh).
-        scheduler.schedule(
-                () -> forfeitIfAbsent(sub.userId, sub.matchId), FORFEIT_GRACE_MS, TimeUnit.MILLISECONDS);
+    }
+
+    private String subKey(String sessionId, String subscriptionId) {
+        return sessionId + ":" + subscriptionId;
     }
 
     private void forfeitIfAbsent(Long userId, Long matchId) {
@@ -241,7 +274,7 @@ public class MatchPresenceService {
     }
 
     private Set<Long> presentUserIds(Long matchId) {
-        return sessions.values().stream()
+        return subs.values().stream()
                 .filter(s -> s.matchId.equals(matchId))
                 .map(s -> s.userId)
                 .collect(Collectors.toSet());
@@ -255,7 +288,7 @@ public class MatchPresenceService {
      * post-match linger (no active match yet) and removes everyone, closing the room.
      */
     public boolean isUserInRoomMatch(Long userId, Long roomId) {
-        Set<Long> watchedMatchIds = sessions.values().stream()
+        Set<Long> watchedMatchIds = subs.values().stream()
                 .filter(s -> s.userId.equals(userId))
                 .map(s -> s.matchId)
                 .collect(Collectors.toSet());
@@ -272,7 +305,7 @@ public class MatchPresenceService {
     }
 
     private boolean isPresent(Long userId, Long matchId) {
-        return sessions.values().stream()
+        return subs.values().stream()
                 .anyMatch(s -> s.userId.equals(userId) && s.matchId.equals(matchId));
     }
 

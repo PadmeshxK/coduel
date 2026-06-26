@@ -22,8 +22,9 @@ public class ChallengeController {
     // Challenge a friend to a duel → returns the challengeId so the challenger can show "waiting…".
     @PostMapping
     public ChallengeData create(@RequestParam("userId") Long userId,
+                                @RequestParam(value = "problemSlug", required = false) String problemSlug,
                                 @AuthenticationPrincipal OidcUser principal) throws ApiException {
-        return challengeDto.create(principal.getSubject(), userId);
+        return challengeDto.create(principal.getSubject(), userId, problemSlug);
     }
 
     // Accept a challenge sent to me → returns the matchId to jump into.
@@ -37,5 +38,13 @@ public class ChallengeController {
     public void decline(@PathVariable("id") String id,
                         @AuthenticationPrincipal OidcUser principal) throws ApiException {
         challengeDto.decline(id, principal.getSubject());
+    }
+
+    // Challenger withdraws a pending challenge they sent to userId (so it can no longer be accepted).
+    @PostMapping("/{id}/cancel")
+    public void cancel(@PathVariable("id") String id,
+                       @RequestParam("userId") Long userId,
+                       @AuthenticationPrincipal OidcUser principal) throws ApiException {
+        challengeDto.cancel(id, userId, principal.getSubject());
     }
 }
