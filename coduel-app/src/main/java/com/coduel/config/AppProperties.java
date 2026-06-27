@@ -40,6 +40,12 @@ public class AppProperties {
     @Value("${spring.session.timeout}")
     private Duration sessionTimeout;
 
+    // SESSION cookie SameSite policy. Subdomain setup (SPA + API both under one site, e.g. coduel.org
+    // + api.coduel.org) is same-site → Lax. A cross-SITE split (different registrable domains) needs
+    // None. Default Lax; override per env.
+    @Value("${session.cookie.same-site:Lax}")
+    private String cookieSameSite;
+
     // ---- Media storage (Cloudflare R2). Secrets come from the env; the rest are non-secret. ----
     @Value("${media.storage:local}")
     private String mediaStorage;

@@ -15,6 +15,9 @@ public class MessageDao extends BaseDao<Message> {
             "SELECT m FROM Message m WHERE m.conversationId = :c ORDER BY m.id DESC";
     private static final String SELECT_PAGE_BEFORE =
             "SELECT m FROM Message m WHERE m.conversationId = :c AND m.id < :before ORDER BY m.id DESC";
+    // Forward pagination — the next NEWER messages after a cursor, oldest-first (for windowed scroll-down).
+    private static final String SELECT_PAGE_AFTER =
+            "SELECT m FROM Message m WHERE m.conversationId = :c AND m.id > :after ORDER BY m.id ASC";
     // Batch-fetch the targets of replies on a page, to build their quoted previews in one query.
     private static final String SELECT_BY_IDS = "SELECT m FROM Message m WHERE m.id IN :ids";
     // Disappearing-message sweep: ids of messages SENT WHILE the option was enabled (createdAt >= enabledAt)
@@ -90,5 +93,22 @@ public class MessageDao extends BaseDao<Message> {
             query.setParameter("before", beforeId);
         }
         return query.getResultList();
+    }
+
+    // Next page of messages newer than afterId, oldest-first (chronological).
+    public List<Message> selectNewer(Long conversationId, Long afterId, int limit) {
+        return createQuery(SELECT_PAGE_AFTER, Message.class)
+                .setParameter("c", conversationId)
+                .setParameter("after", afterId)
+                .setMaxResults(limit)
+                .getResultList();
+    }
+
+    // The newest message in a thread (highest id) — null if the thread is empty. Drives the inbox
+    // snapshot refresh when the newest message is edited/deleted.
+    public Message selectLatest(Long conversationId) {
+        return selectSingleOrNull(createQuery(SELECT_PAGE, Message.class)
+                .setParameter("c", conversationId)
+                .setMaxResults(1));
     }
 }

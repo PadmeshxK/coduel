@@ -73,13 +73,15 @@ public class ChatController {
         return chatDto.searchMessages(principal.getSubject(), q, conversationId, page, size);
     }
 
-    // A thread page — newest-first; pass ?before={messageId} to load older history (keyset).
+    // A thread page (keyset). ?before={id} → older page (newest-first); ?after={id} → newer page
+    // (oldest-first), for the windowed scroll-down. Neither → the latest page.
     @GetMapping("/conversations/{id}/messages")
     public List<MessageData> messages(@PathVariable("id") Long conversationId,
                                       @RequestParam(value = "before", required = false) Long before,
+                                      @RequestParam(value = "after", required = false) Long after,
                                       @RequestParam(value = "size", defaultValue = "30") int size,
                                       @AuthenticationPrincipal OidcUser principal) throws ApiException {
-        return chatDto.loadMessages(principal.getSubject(), conversationId, before, size);
+        return chatDto.loadMessages(principal.getSubject(), conversationId, before, after, size);
     }
 
     // Mark a thread read up to now (persists the caller's read marker) — clears its unread badge.

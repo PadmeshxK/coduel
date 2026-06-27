@@ -15,6 +15,9 @@ public class RedisMatchmakingQueue implements MatchmakingQueue {
 
     @Override
     public void enqueue(Long userId) {
+        // Drop any stale entry first so a user appears at most once — re-clicking "find match" (or a
+        // race between status + join) must not stack the same userId in the queue twice.
+        redis.opsForList().remove(QUEUE_KEY, 0, userId.toString());
         redis.opsForList().leftPush(QUEUE_KEY, userId.toString());
     }
 

@@ -244,11 +244,11 @@ public class ConversionHelper {
                 && message.getSharedRef() != null && !message.getSharedRef().isBlank();
         boolean isVoice = message.getKind() == MessageKind.VOICE
                 && message.getAttachmentUrl() != null && !message.getAttachmentUrl().isBlank();
-        data.setKind(isCode ? MessageKind.CODE.name()
-                : isImage ? MessageKind.IMAGE.name()
-                : isProblem ? MessageKind.PROBLEM_SHARE.name()
-                : isVoice ? MessageKind.VOICE.name()
-                : MessageKind.TEXT.name());
+        data.setKind(isCode ? MessageKind.CODE
+                : isImage ? MessageKind.IMAGE
+                : isProblem ? MessageKind.PROBLEM_SHARE
+                : isVoice ? MessageKind.VOICE
+                : MessageKind.TEXT);
         data.setCodeLanguage(isCode && !deleted ? message.getCodeLanguage() : null);
         // attachmentUrl backs both IMAGE and VOICE.
         data.setAttachmentUrl((isImage || isVoice) && !deleted ? message.getAttachmentUrl() : null);
@@ -290,7 +290,8 @@ public class ConversionHelper {
                 && message.getSharedRef() != null && !message.getSharedRef().isBlank();
         boolean isVoice = message.getKind() == MessageKind.VOICE
                 && message.getAttachmentUrl() != null && !message.getAttachmentUrl().isBlank();
-        data.setKind(isCode ? "CODE" : isImage ? "IMAGE" : isProblem ? "PROBLEM_SHARE" : isVoice ? "VOICE" : "TEXT");
+        data.setKind(isCode ? MessageKind.CODE : isImage ? MessageKind.IMAGE
+                : isProblem ? MessageKind.PROBLEM_SHARE : isVoice ? MessageKind.VOICE : MessageKind.TEXT);
         data.setCreatedAtMs(message.getCreatedAt() != null ? message.getCreatedAt().toEpochMilli() : null);
         data.setOtherUserId(other.getId());
         data.setOtherDisplayName(other.getDisplayName());
@@ -341,7 +342,8 @@ public class ConversionHelper {
                 && message.getAttachmentUrl() != null && !message.getAttachmentUrl().isBlank();
         // Non-text previews are an icon + label on the client; only TEXT dumps its body.
         String preview = (isImage || isCode || isProblem || isVoice || body == null) ? "" : body;
-        data.setKind(isImage ? "IMAGE" : isCode ? "CODE" : isProblem ? "PROBLEM_SHARE" : isVoice ? "VOICE" : "TEXT");
+        data.setKind(isImage ? MessageKind.IMAGE : isCode ? MessageKind.CODE
+                : isProblem ? MessageKind.PROBLEM_SHARE : isVoice ? MessageKind.VOICE : MessageKind.TEXT);
         data.setPreview(preview.length() <= 140 ? preview : preview.substring(0, 140));
         data.setPinnedByUserId(pinnedByUserId);
         return data;
@@ -382,7 +384,8 @@ public class ConversionHelper {
                 && message.getSharedRef() != null && !message.getSharedRef().isBlank();
         boolean isVoice = message.getKind() == MessageKind.VOICE
                 && message.getAttachmentUrl() != null && !message.getAttachmentUrl().isBlank();
-        data.setKind(isCode ? "CODE" : isImage ? "IMAGE" : isProblem ? "PROBLEM_SHARE" : isVoice ? "VOICE" : "TEXT");
+        data.setKind(isCode ? MessageKind.CODE : isImage ? MessageKind.IMAGE
+                : isProblem ? MessageKind.PROBLEM_SHARE : isVoice ? MessageKind.VOICE : MessageKind.TEXT);
         String body = message.getBody() == null ? "" : message.getBody();
         String preview = (isCode || isImage || isProblem || isVoice) ? "" : body;
         data.setPreview(preview.length() <= 140 ? preview : preview.substring(0, 140));
@@ -462,9 +465,12 @@ public class ConversionHelper {
         return data;
     }
 
-    public static MarkReadResult toMarkReadResult(String otherGoogleId, ReadReceiptData receipt) {
+    // otherUserId is always set (the Dto clears that sender's DM cue from the reader's inbox); receipt
+    // is null when the reader has read receipts off (no live "Seen" push), otherGoogleId then unused.
+    public static MarkReadResult toMarkReadResult(String otherGoogleId, Long otherUserId, ReadReceiptData receipt) {
         MarkReadResult result = new MarkReadResult();
         result.setOtherGoogleId(otherGoogleId);
+        result.setOtherUserId(otherUserId);
         result.setReceipt(receipt);
         return result;
     }
@@ -508,11 +514,20 @@ public class ConversionHelper {
         return data;
     }
 
+    // The inbox key for a sender's DM cue — one entry per sender, added on receive, removed on read.
+    public static String dmNotificationId(Long senderUserId) {
+        return "dm:" + senderUserId;
+    }
+
     // Pushed to the recipient's notification queue when a DM arrives — a toast cue ("from" = the sender),
     // clicked to open the thread. Not an actionable bell item; the conversation lives on the Messages page.
-    public static NotificationData toDmNotification(User sender, String messageKind) {
+    public static NotificationData toDmNotification(User sender, MessageKind messageKind) {
         NotificationData data = new NotificationData();
         data.setType(NotificationEventType.DM_RECEIVED);
+        // One inbox entry per sender (keyed dm:<senderId>) — repeated DMs collapse onto it. No time
+        // expiry: a DM persists until the thread is READ (removed then). Matches the client's
+        // notificationKey for DM_RECEIVED.
+        data.setId(dmNotificationId(sender.getId()));
         data.setFromUserId(sender.getId());
         data.setFromDisplayName(sender.getDisplayName());
         data.setFromAvatarUrl(sender.getAvatarUrl());

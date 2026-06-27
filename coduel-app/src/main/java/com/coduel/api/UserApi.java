@@ -48,6 +48,11 @@ public class UserApi extends AbstractApi {
                 .anyMatch(user -> !user.getId().equals(excludeUserId));
     }
 
+    // Batch-load users by id (empty in -> empty out) — for decorating lists without an N+1.
+    public List<User> getByIds(List<Long> ids) {
+        return userDao.selectByIds(ids);
+    }
+
     public User getCheckById(Long id) throws ApiException {
         User user = userDao.selectById(id);
         if (Objects.isNull(user)) {

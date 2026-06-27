@@ -47,7 +47,18 @@ public class ConversationApi extends AbstractApi {
     public void recordLastMessage(Conversation conversation, Long senderId, String body) {
         conversation.setLastMessageAt(Instant.now());
         conversation.setLastSenderId(senderId);
-        conversation.setLastPreview(body.length() <= PREVIEW_MAX ? body : body.substring(0, PREVIEW_MAX));
+        conversation.setLastPreview(clampPreview(body));
+    }
+
+    // Re-snapshot just the preview/sender for the EXISTING newest message (edit/delete) — leaves
+    // lastMessageAt untouched so editing doesn't bump the thread's position in the inbox.
+    public void refreshLastPreview(Conversation conversation, Long senderId, String body) {
+        conversation.setLastSenderId(senderId);
+        conversation.setLastPreview(clampPreview(body));
+    }
+
+    private static String clampPreview(String body) {
+        return body.length() <= PREVIEW_MAX ? body : body.substring(0, PREVIEW_MAX);
     }
 
     public List<Conversation> getForUser(Long userId) {

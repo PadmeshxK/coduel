@@ -1,5 +1,6 @@
 package com.coduel.model.data;
 
+import com.coduel.model.constant.MessageKind;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -11,7 +12,7 @@ public class ReplyPreviewData {
     private Long messageId;
     private Long senderId;
     private String preview;
-    // The quoted message's kind ("TEXT"/"IMAGE"/"CODE"/"PROBLEM_SHARE"), so the quote can show an
-    // icon + label ("Photo", "Code snippet", "Duel challenge") instead of an empty/odd body.
-    private String kind;
+    // The quoted message's kind, so the quote can show an icon + label ("Photo", "Code snippet",
+    // "Duel challenge") instead of an empty/odd body.
+    private MessageKind kind;
 }

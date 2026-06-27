@@ -77,18 +77,29 @@ public class RoomFlow {
         return new InviteResult(requester, invitee);
     }
 
-    // Accept an invite / join the room. Idempotent — re-joining is a no-op.
+    // Add the caller to the room. Idempotent — re-joining (already a member) is a no-op. Authorization
+    // (a held invite for this room) is enforced by the Dto before this is called; here it's pure roster
+    // orchestration (open + capacity).
     public void join(Long roomId, String googleId) throws ApiException {
         Long userId = userApi.getCheckByGoogleId(googleId).getId();
         Room room = roomApi.getCheckById(roomId);
         requireOpen(room);
+        if (room.getMembers().stream().anyMatch(m -> m.getUserId().equals(userId))) {
+            return; // already in — idempotent re-join
+        }
         if (room.getMembers().size() >= MAX_ROOM_PLAYERS) {
             throw new ApiException(ApiStatus.BAD_DATA, Errors.ERR_116, List.of(MAX_ROOM_PLAYERS));
         }
-        if (room.getMembers().stream().noneMatch(m -> m.getUserId().equals(userId))) {
-            room.getMembers().add(ConversionHelper.toRoomMember(userId));
-            roomApi.save(room);
-        }
+        room.getMembers().add(ConversionHelper.toRoomMember(userId));
+        roomApi.save(room);
+    }
+
+    // Whether the caller is already in the room — lets the Dto skip the invite gate for existing members
+    // (a re-join after refresh has no fresh invite to consume).
+    public boolean isMember(Long roomId, String googleId) throws ApiException {
+        Long userId = userApi.getCheckByGoogleId(googleId).getId();
+        Room room = roomApi.getCheckById(roomId);
+        return room.getMembers().stream().anyMatch(m -> m.getUserId().equals(userId));
     }
 
     // A non-host member toggles their lobby readiness. The host is implicitly ready (starting is

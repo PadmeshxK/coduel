@@ -45,6 +45,16 @@ public class MessageApi extends AbstractApi {
         return messageDao.selectPage(conversationId, beforeId, limit);
     }
 
+    // The next page NEWER than afterId, chronological (for windowed scroll-down).
+    public List<Message> getNewerPage(Long conversationId, Long afterId, int limit) {
+        return messageDao.selectNewer(conversationId, afterId, limit);
+    }
+
+    // The newest message in a thread (null if empty) — used to refresh the inbox snapshot on edit/delete.
+    public Message getLatest(Long conversationId) {
+        return messageDao.selectLatest(conversationId);
+    }
+
     // Search the caller's conversations for messages whose body contains the query (case-insensitive),
     // newest-first, offset-paginated + a total count (mirrors the problem-list paging).
     public List<Message> searchPage(List<Long> conversationIds, String query, int page, int size) {

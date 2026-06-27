@@ -1,5 +1,6 @@
 package com.coduel.model.data;
 
+import com.coduel.model.constant.MessageKind;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -12,7 +13,7 @@ public class MessageSearchData {
     private Long conversationId;
     private Long senderId;
     private String snippet;
-    private String kind;
+    private MessageKind kind;
     private Long createdAtMs;
     // The other participant of the thread the hit belongs to (who to open the conversation with).
     private Long otherUserId;

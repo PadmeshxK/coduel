@@ -71,7 +71,9 @@ public enum Errors {
     ERR_146("Failed to store the image — please try again"),
     ERR_147("A message needs text or an image"),
     ERR_148("A shared problem reference is required"),
-    ERR_149("Only audio voice notes are allowed");
+    ERR_149("Only audio voice notes are allowed"),
+
+    ERR_150("You are not invited to this room");
 
     private final String message;
 

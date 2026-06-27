@@ -16,11 +16,12 @@ import java.util.Map;
 @Component
 public class RedisNotificationInbox implements NotificationInbox {
 
-    // One HASH per recipient (field = notification id, value = JSON). The key carries a coarse reaper
-    // TTL so nothing lingers forever; per-notification expiry is enforced on read via expiresAtMs, so
-    // entries with different lifetimes (90s challenge, 1h invite) coexist under one key.
+    // One HASH per recipient (field = notification id, value = JSON). The key carries a generous reaper
+    // TTL (refreshed on each add) purely so abandoned inboxes don't live forever — actual lifetime is
+    // governed per-entry: time-boxed offers carry expiresAtMs (90s challenge, 1h invite) dropped on
+    // read, while DMs / friend requests have NO expiry and persist until they're read / acted on.
     private static final String PREFIX = "notif:user:";
-    private static final Duration REAPER_TTL = Duration.ofHours(1);
+    private static final Duration REAPER_TTL = Duration.ofDays(30);
 
     // Boot 4 ships Jackson 3 only — serialize the payload ourselves (same as the WS publishers).
     private static final JsonMapper JSON = JsonMapper.builder().build();

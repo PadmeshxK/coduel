@@ -2,26 +2,23 @@ package com.coduel.flow;
 
 import com.coduel.api.ConversationApi;
 import com.coduel.api.ConversationSettingApi;
-import com.coduel.api.MessageApi;
-import com.coduel.api.MessageReactionApi;
-import com.coduel.api.PinnedMessageApi;
 import com.coduel.entity.Conversation;
 import com.coduel.entity.ConversationSetting;
+import lombok.extern.log4j.Log4j2;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.util.List;
 
 /**
  * Disappearing-message retention. For every thread with disappearing enabled, purge the messages that
  * were sent WHILE it was on (createdAt >= the enable instant) and are now older than that side's TTL —
- * history from before it was turned on is left untouched. Cross-Api orchestration, so it lives in a
- * flow: it cleans each purged message's reactions + pins before removing the messages themselves.
+ * history from before it was turned on is left untouched. The actual per-thread delete runs in
+ * {@link MessageThreadPurger} in its OWN transaction; this driver loop is deliberately NOT transactional
+ * so each thread commits independently and one bad thread can't roll back (or stall) the whole sweep.
  */
 @Component
-@Transactional(rollbackFor = Exception.class)
+@Log4j2
 public class MessageRetentionFlow {
 
     @Autowired
@@ -29,11 +26,7 @@ public class MessageRetentionFlow {
     @Autowired
     private ConversationApi conversationApi;
     @Autowired
-    private MessageApi messageApi;
-    @Autowired
-    private MessageReactionApi messageReactionApi;
-    @Autowired
-    private PinnedMessageApi pinnedMessageApi;
+    private MessageThreadPurger messageThreadPurger;
 
     public int purgeExpired() {
         int purged = 0;
@@ -50,14 +43,12 @@ public class MessageRetentionFlow {
                 continue;
             }
             Instant cutoff = now.minusSeconds(ttl);
-            List<Long> ids = messageApi.getExpiredIds(conversation.getId(), enabledAt, cutoff);
-            if (ids.isEmpty()) {
-                continue;
+            // Each thread is its own transaction — a failure here is logged and the sweep moves on.
+            try {
+                purged += messageThreadPurger.purgeThread(conversation.getId(), enabledAt, cutoff);
+            } catch (RuntimeException e) {
+                log.warn("Disappearing purge failed for conversation {}", conversation.getId(), e);
             }
-            // Children first (no FK cascade), then the messages.
-            messageReactionApi.deleteByMessageIds(ids);
-            pinnedMessageApi.deleteByMessageIds(ids);
-            purged += messageApi.deleteByIds(ids);
         }
         return purged;
     }

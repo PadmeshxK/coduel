@@ -50,6 +50,8 @@ public class ChatFlow {
     private static final long EDIT_WINDOW_SECONDS = 300; // 5 minutes
     // Largest message-search page the API will serve.
     private static final int SEARCH_MAX_SIZE = 50;
+    // Inbox preview shown when the thread's newest message has been deleted (client renders a tombstone).
+    private static final String DELETED_PREVIEW = "Message deleted";
 
     @Autowired
     private UserApi userApi;
@@ -182,8 +184,18 @@ public class ChatFlow {
         for (ConversationSetting setting : conversationSettingApi.getForOwner(me)) {
             settings.put(setting.getPeerUserId(), setting);
         }
+        List<Conversation> conversations = conversationApi.getForUser(me);
+        // Batch-load every "other user" once (id -> user) so decorating the inbox isn't an N+1.
+        List<Long> otherIds = conversations.stream()
+                .map(c -> c.getLowerUserId().equals(me) ? c.getHigherUserId() : c.getLowerUserId())
+                .distinct()
+                .toList();
+        Map<Long, User> users = new HashMap<>();
+        for (User u : userApi.getByIds(otherIds)) {
+            users.put(u.getId(), u);
+        }
         List<ConversationView> views = new ArrayList<>();
-        for (Conversation conversation : conversationApi.getForUser(me)) {
+        for (Conversation conversation : conversations) {
             Long otherId = conversation.getLowerUserId().equals(me) ? conversation.getHigherUserId() : conversation.getLowerUserId();
             boolean unread = conversationApi.isUnreadFor(conversation, me);
             ConversationSetting setting = settings.get(otherId);
@@ -192,7 +204,7 @@ public class ChatFlow {
             if (setting != null && setting.isArchived() && !unread) {
                 continue;
             }
-            views.add(ConversionHelper.toConversationView(conversation, userApi.getCheckById(otherId), unread, setting));
+            views.add(ConversionHelper.toConversationView(conversation, users.get(otherId), unread, setting));
         }
         return views;
     }
@@ -222,23 +234,27 @@ public class ChatFlow {
         Long otherId = conversation.getLowerUserId().equals(me)
                 ? conversation.getHigherUserId()
                 : conversation.getLowerUserId();
-        // Read marker is always persisted (so the caller's unread badge clears + survives reload). But if
-        // the caller turned OFF read receipts for this peer, don't broadcast it — return null and the Dto
-        // skips the "Seen" push, so the peer never learns how far they've read.
+        // Read marker is always persisted (so the caller's unread badge clears + survives reload). The Dto
+        // always clears the sender's DM cue from the inbox (otherUserId below). But if the caller turned
+        // OFF read receipts for this peer, leave the receipt null so the Dto skips the live "Seen" push.
         ConversationSetting mySetting = conversationSettingApi.find(me, otherId);
         if (mySetting != null && !mySetting.isReadReceiptsEnabled()) {
-            return null;
+            return ConversionHelper.toMarkReadResult(null, otherId, null);
         }
         String otherGoogleId = userApi.getCheckById(otherId).getGoogleId();
-        return ConversionHelper.toMarkReadResult(otherGoogleId,
+        return ConversionHelper.toMarkReadResult(otherGoogleId, otherId,
                 ConversionHelper.toReadReceiptData(conversationId, me, readAt.toEpochMilli()));
     }
 
-    public List<MessageView> loadMessages(String googleId, Long conversationId, Long beforeId, int limit) throws ApiException {
+    public List<MessageView> loadMessages(String googleId, Long conversationId, Long beforeId, Long afterId, int limit)
+            throws ApiException {
         Long me = userApi.getCheckByGoogleId(googleId).getId();
         Conversation conversation = conversationApi.getCheckById(conversationId);
         requireParticipant(conversation, me);
-        List<Message> messages = messageApi.getPage(conversationId, beforeId, limit);
+        // afterId → the next NEWER page (windowed scroll-down, chronological); otherwise the older page.
+        List<Message> messages = afterId != null
+                ? messageApi.getNewerPage(conversationId, afterId, limit)
+                : messageApi.getPage(conversationId, beforeId, limit);
         // Batch-load this page's reactions in one query, grouped by message (no N+1).
         Map<Long, List<MessageReaction>> byMessage = new HashMap<>();
         for (MessageReaction reaction : messageReactionApi.getForMessages(messages.stream().map(Message::getId).toList())) {
@@ -268,6 +284,8 @@ public class ChatFlow {
         }
         Conversation conversation = conversationOf(messageId);
         requireParticipant(conversation, me);
+        // find-then-build spans two Api calls, so the entity is assembled here (flow) via ConversionHelper
+        // and handed to the Api to persist; an existing reaction is just re-pointed at the new emoji.
         MessageReaction reaction = messageReactionApi.find(messageId, me);
         if (Objects.isNull(reaction)) {
             reaction = ConversionHelper.toMessageReaction(messageId, me, clean);
@@ -321,6 +339,8 @@ public class ChatFlow {
         message.setBody(body);
         message.setEditedAt(Instant.now());
         Conversation conversation = conversationApi.getCheckById(message.getConversationId());
+        // If this is the newest message, the inbox snapshot now shows a stale preview — recompute it.
+        refreshSnapshotIfLatest(conversation, message);
         return ConversionHelper.toMessageUpdateResult(otherGoogleId(conversation, me),
                 ConversionHelper.toMessageUpdateData(message));
     }
@@ -337,8 +357,41 @@ public class ChatFlow {
             message.setDeletedAt(Instant.now());
         }
         Conversation conversation = conversationApi.getCheckById(message.getConversationId());
+        // Deleting the newest message would leave a stale (now-blanked) preview in the inbox — refresh it.
+        refreshSnapshotIfLatest(conversation, message);
         return ConversionHelper.toMessageUpdateResult(otherGoogleId(conversation, me),
                 ConversionHelper.toMessageUpdateData(message));
+    }
+
+    // After a message is edited/deleted, if it's the thread's newest message refresh the denormalized
+    // inbox snapshot (preview + sender) so the inbox doesn't show stale or deleted text. A deleted last
+    // message shows a tombstone preview (consistent with how the client renders the deleted message).
+    private void refreshSnapshotIfLatest(Conversation conversation, Message message) throws ApiException {
+        Message latest = messageApi.getLatest(conversation.getId());
+        if (latest == null || !latest.getId().equals(message.getId())) {
+            return;
+        }
+        String preview = Objects.isNull(message.getDeletedAt()) ? previewOf(message) : DELETED_PREVIEW;
+        conversationApi.refreshLastPreview(conversation, message.getSenderId(), preview);
+    }
+
+    // The inbox preview for a (non-deleted) message — mirrors the per-kind preview built in
+    // sendDirectMessage: media/share get a label, code is summarized, text is the body itself.
+    private String previewOf(Message message) throws ApiException {
+        MessageKind kind = message.getKind();
+        if (kind == MessageKind.IMAGE) {
+            return "Photo";
+        }
+        if (kind == MessageKind.VOICE) {
+            return "Voice message";
+        }
+        if (kind == MessageKind.PROBLEM_SHARE) {
+            return "Shared: " + problemApi.getCheckBySlug(message.getSharedRef()).getTitle();
+        }
+        if (kind == MessageKind.CODE) {
+            return "Code snippet";
+        }
+        return message.getBody();
     }
 
     private String otherGoogleId(Conversation conversation, Long me) throws ApiException {

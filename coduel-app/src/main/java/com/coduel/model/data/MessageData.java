@@ -1,5 +1,6 @@
 package com.coduel.model.data;
 
+import com.coduel.model.constant.MessageKind;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -24,9 +25,9 @@ public class MessageData {
     // Non-null once edited; deleted=true renders a tombstone (and the body is blanked server-side).
     private Long editedAtMs;
     private boolean deleted;
-    // "TEXT" / "CODE" / "IMAGE" / "PROBLEM_SHARE"; codeLanguage for CODE, attachmentUrl for IMAGE,
-    // sharedRef (problem slug) for PROBLEM_SHARE (body = caption).
-    private String kind;
+    // The message kind; codeLanguage for CODE, attachmentUrl for IMAGE/VOICE, sharedRef (problem slug)
+    // for PROBLEM_SHARE (body = caption).
+    private MessageKind kind;
     private String codeLanguage;
     private String attachmentUrl;
     private String sharedRef;

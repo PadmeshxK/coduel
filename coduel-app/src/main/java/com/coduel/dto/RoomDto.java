@@ -1,10 +1,12 @@
 package com.coduel.dto;
 
+import com.coduel.common.constant.ApiStatus;
 import com.coduel.common.exception.ApiException;
 import com.coduel.entity.Room;
 import com.coduel.flow.RoomFlow;
 import com.coduel.helper.ConversionHelper;
 import com.coduel.interfaces.NotificationInbox;
+import com.coduel.model.constant.Errors;
 import com.coduel.interfaces.RoomChatBuffer;
 import com.coduel.interfaces.RoomChatPublisher;
 import com.coduel.interfaces.RoomEventPublisher;
@@ -53,9 +55,15 @@ public class RoomDto {
     }
 
     public void join(Long roomId, String googleId) throws ApiException {
+        // Authorization gate: a non-member may join only by holding (and thereby consuming) a live invite
+        // for this room — otherwise anyone could join by guessing the sequential room id (IDOR). Existing
+        // members re-join freely (a refresh has no invite left to spend). The consume is the external
+        // (inbox) call, so it lives here in the Dto, not the flow.
+        if (!roomFlow.isMember(roomId, googleId)
+                && !notificationInbox.removeIfPresent(googleId, ConversionHelper.roomNotificationId(roomId))) {
+            throw new ApiException(ApiStatus.FORBIDDEN, Errors.ERR_150, List.of(roomId));
+        }
         roomFlow.join(roomId, googleId);
-        // The invite is consumed — drop it so it stops showing in the joiner's notifications.
-        notificationInbox.remove(googleId, ConversionHelper.roomNotificationId(roomId));
         roomEventPublisher.publish(roomId, ConversionHelper.toRoomRosterChanged());
     }
 

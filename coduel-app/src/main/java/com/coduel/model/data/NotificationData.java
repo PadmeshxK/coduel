@@ -1,5 +1,6 @@
 package com.coduel.model.data;
 
+import com.coduel.model.constant.MessageKind;
 import com.coduel.model.constant.NotificationEventType;
 import lombok.Getter;
 import lombok.Setter;
@@ -27,9 +28,9 @@ public class NotificationData {
     private String problemSlug;
     // CHALLENGE_ACCEPTED — the duel match to jump into.
     private Long matchId;
-    // DM_RECEIVED — the kind of message ("TEXT"/"IMAGE"/"CODE"/"PROBLEM_SHARE"), so the toast/bell can
-    // say what they sent ("sent you an image", "shared a problem", …).
-    private String messageKind;
+    // DM_RECEIVED — the kind of message, so the toast/bell can say what they sent ("sent you an image",
+    // "shared a problem", …).
+    private MessageKind messageKind;
     // Common: who triggered it, and when (millis) for recency ordering in the notification center.
     private Long fromUserId;
     private String fromDisplayName;

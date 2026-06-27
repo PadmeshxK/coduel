@@ -1,5 +1,6 @@
 package com.coduel.model.data;
 
+import com.coduel.model.constant.MessageKind;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -12,6 +13,6 @@ public class PinnedMessageData {
     private Long senderId;
     private String preview;
     private Long pinnedByUserId;
-    // "TEXT" / "CODE" / "IMAGE" — lets the client render an icon + label for non-text pins.
-    private String kind;
+    // Lets the client render an icon + label for non-text pins.
+    private MessageKind kind;
 }

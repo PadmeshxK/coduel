@@ -22,10 +22,11 @@ public class SessionConfig {
         DefaultCookieSerializer serializer = new DefaultCookieSerializer();
         serializer.setCookieName("SESSION");
         serializer.setUseHttpOnlyCookie(true);
-        // The SPA and API live on different sites in prod, so the SESSION cookie is always
-        // SameSite=None + Secure — the only combination the browser sends on cross-site fetches.
-        // (http://localhost is a secure context, so Secure cookies work in local dev too.)
-        serializer.setSameSite("None");
+        // SPA + API live on subdomains of ONE site in prod (coduel.org + api.coduel.org) → same-site,
+        // so SameSite=Lax is sent on the SPA's fetches/WS handshake AND on the OAuth top-level callback,
+        // and it's the more robust choice as browsers tighten SameSite=None. Configurable (set None for a
+        // cross-SITE split). Secure always on (localhost is a secure context, so it works in dev too).
+        serializer.setSameSite(appProperties.getCookieSameSite());
         serializer.setUseSecureCookie(true);
         serializer.setCookieMaxAge((int) appProperties.getSessionTimeout().toSeconds());
         return serializer;

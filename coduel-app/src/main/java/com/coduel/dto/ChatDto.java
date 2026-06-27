@@ -1,12 +1,16 @@
 package com.coduel.dto;
 
+import com.coduel.common.constant.ApiStatus;
 import com.coduel.common.dto.AbstractDto;
 import com.coduel.common.exception.ApiException;
 import com.coduel.api.MediaApi;
 import com.coduel.flow.ChatFlow;
 import com.coduel.helper.ConversionHelper;
+import com.coduel.model.constant.Errors;
 import com.coduel.interfaces.ChatReadPublisher;
 import com.coduel.interfaces.DmPublisher;
+import com.coduel.interfaces.NotificationInbox;
+import com.coduel.model.data.NotificationData;
 import com.coduel.interfaces.MessageUpdatePublisher;
 import com.coduel.interfaces.PinPublisher;
 import com.coduel.interfaces.ReactionPublisher;
@@ -35,6 +39,9 @@ import java.util.List;
 @Component
 public class ChatDto extends AbstractDto {
 
+    // Largest thread page the API will serve (mirrors the problem list's page-size cap).
+    private static final int MAX_PAGE_SIZE = 100;
+
     @Autowired
     private ChatFlow chatFlow;
     @Autowired
@@ -53,6 +60,8 @@ public class ChatDto extends AbstractDto {
     private PinPublisher pinPublisher;
     @Autowired
     private MediaApi mediaApi;
+    @Autowired
+    private NotificationInbox notificationInbox;
 
     public MessageData sendMessage(String googleId, MessageForm form) throws ApiException {
         checkValid(form);
@@ -69,8 +78,11 @@ public class ChatDto extends AbstractDto {
         // thread above; just skip the toast/bell. (The DM cue isn't a pending bell item, so there's
         // nothing left to reconcile.)
         if (!chatFlow.isMuted(form.getRecipientUserId(), result.getSender().getId())) {
-            userNotificationPublisher.publish(result.getRecipientGoogleId(),
-                    ConversionHelper.toDmNotification(result.getSender(), data.getKind()));
+            NotificationData dmNotification = ConversionHelper.toDmNotification(result.getSender(), data.getKind());
+            // Persist in the recipient's inbox (one entry per sender) so it survives reload + lingers in
+            // the bell until they read the thread — then push it live for the toast/bell.
+            notificationInbox.add(result.getRecipientGoogleId(), dmNotification);
+            userNotificationPublisher.publish(result.getRecipientGoogleId(), dmNotification);
         }
         return data; // echoed back to the sender as the HTTP response
     }
@@ -89,9 +101,12 @@ public class ChatDto extends AbstractDto {
 
     public void markRead(String googleId, Long conversationId) throws ApiException {
         MarkReadResult result = chatFlow.markRead(googleId, conversationId);
-        // Tell the message author the thread was read up to now → drives their live "Seen" receipt.
-        // null = the caller disabled read receipts for this peer, so we persist the marker but stay silent.
-        if (result != null) {
+        // Reading the thread clears that sender's DM cue from the caller's inbox (keyed dm:<senderId>) —
+        // this is what "seen" means for a DM. Always done, regardless of the read-receipt setting.
+        notificationInbox.remove(googleId, ConversionHelper.dmNotificationId(result.getOtherUserId()));
+        // Tell the message author the thread was read up to now → their live "Seen" receipt. A null receipt
+        // = the caller disabled read receipts for this peer, so we persist the marker but stay silent.
+        if (result.getReceipt() != null) {
             chatReadPublisher.publish(result.getOtherGoogleId(), result.getReceipt());
         }
     }
@@ -116,8 +131,12 @@ public class ChatDto extends AbstractDto {
         }
     }
 
-    public List<MessageData> loadMessages(String googleId, Long conversationId, Long beforeId, int size) throws ApiException {
-        return chatFlow.loadMessages(googleId, conversationId, beforeId, size).stream()
+    public List<MessageData> loadMessages(String googleId, Long conversationId, Long beforeId, Long afterId, int size)
+            throws ApiException {
+        if (size < 1 || size > MAX_PAGE_SIZE) {
+            throw new ApiException(ApiStatus.BAD_DATA, Errors.ERR_105, List.of(MAX_PAGE_SIZE, size));
+        }
+        return chatFlow.loadMessages(googleId, conversationId, beforeId, afterId, size).stream()
                 .map(view -> ConversionHelper.toMessageData(view.getMessage(), view.getReactions(), view.getReplyTo()))
                 .toList();
     }
